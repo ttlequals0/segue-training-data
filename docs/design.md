@@ -78,11 +78,15 @@ Done so far:
 - Spot checks confirmed window-clipped ads get their `end_text` recomputed at
   the clip boundary, and empty windows serialize as an empty array.
 
+- First LoRA run finished on Tinker: Qwen3.5-4B, rank 16, 3 epochs, 50 steps.
+  Final train nll 0.275, test nll 0.282 on the in-run split.
+- Merged weights exported and served with vLLM on a 16 GB card. See
+  `phase1-runbook.md` for the serving config and the flags it needs.
+
 Next up:
 
-- LoRA training run on Tinker (needs an API key in the environment), then
-  merge, serve with vLLM on a 16 GB card, and score with the benchmark
-  harness against the untuned base.
+- Score the served checkpoint with the MinusPod benchmark harness, and score
+  the untuned base the same way for comparison.
 
 Open items and known gaps:
 
@@ -94,3 +98,8 @@ Open items and known gaps:
   comes back in phase 2 with finer-grained filtering.
 - Markers that predate MinusPod's category field are skipped until the phase
   2 backfill.
+- 8 of the 17 training feeds are shows that also appear in the benchmark
+  corpus. No benchmark episode is trained on, but the model has seen other
+  episodes of those shows. Phase 1 scores split into a five-feed
+  generalization signal and an eight-feed same-show signal; phase 2 should
+  widen the training feeds.

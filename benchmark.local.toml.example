@@ -1,0 +1,50 @@
+# Benchmark config for scoring a locally served Segue checkpoint.
+# Copy to MinusPod's benchmarks/llm/benchmark.toml (that path is gitignored).
+#
+# This roster holds ONE model on purpose. The shipped example config lists
+# every hosted model, and `benchmark run` executes the whole roster, which
+# against a single local GPU means thousands of calls.
+
+[minuspod]
+base_url = "https://your-minuspod-host"
+password_env = "MINUSPOD_PASSWORD"
+session_cache_path = "~/.cache/minuspod-benchmark/session.json"
+
+[providers.local_vllm]
+client = "openai_compatible"
+base_url = "http://your-gpu-host:8123/v1"
+# vLLM ignores the key but the OpenAI SDK requires a non-empty one.
+# Export it first: export SEGUE_LOCAL_API_KEY=dummy
+api_key_env = "SEGUE_LOCAL_API_KEY"
+
+[[models]]
+# vLLM registers the exact string passed to --model. Serving a directory
+# mounted at /model registers the id "/model".
+id = "/model"
+provider = "local_vllm"
+
+[run]
+# One trial: greedy decoding at temperature 0 makes repeat trials redundant,
+# and 5 trials is 855 calls against one GPU.
+trials = 1
+temperature = 0.0
+# A 4B on a 16 GB card generates around 30 tokens/s, so a long answer can
+# take minutes. The 180 second default expires mid-generation and the OpenAI
+# SDK then retries, which looks like a hang.
+timeout_seconds = 900
+# Retries hide the real error. Turn them back up once a run is clean.
+max_retries = 0
+# Serve-side concurrency is bounded by KV cache, not by max_num_seqs. At
+# 16k context and roughly 3.4 GiB of KV cache the card fits about 5 full
+# length sequences, so keep the harness at or below that.
+max_concurrent_calls = 2
+max_concurrent_per_provider = 2
+# The harness parses a JSON array. Confirm with tools/smoke_test.py that the
+# served model returns an array under this setting before a full run. If the
+# grammar forces an object instead, set this to "text": the harness only
+# sends the constraint when the value is exactly "json_object", and omitting
+# the line falls back to the same "json_object" default.
+response_format = "json_object"
+
+[corpus]
+path = "data/corpus"
