@@ -7,31 +7,41 @@
 # those files and merge local rows into the shared report, so the run gets its
 # own tree with an empty results directory.
 #
+# The copy keeps the benchmarks/llm depth on purpose: benchmark/__init__.py
+# finds MinusPod's shared src/ at parents[3].parent/"src", so a flattened
+# copy resolves that to the wrong place and the shared imports fail. The
+# symlink puts the real src/ exactly where that walk expects it.
+#
 # Usage:
 #   tools/setup_isolated_benchmark.sh <minuspod-repo> [dest]
 set -euo pipefail
 
-MINUSPOD="${1:?usage: $0 <minuspod-repo> [dest]}"
+MINUSPOD="$(cd "${1:?usage: $0 <minuspod-repo> [dest]}" && pwd)"
 DEST="${2:-$HOME/segue-benchmark}"
 SRC="$MINUSPOD/benchmarks/llm"
 
 [ -d "$SRC" ] || { echo "not found: $SRC" >&2; exit 1; }
+[ -d "$MINUSPOD/src" ] || { echo "not found: $MINUSPOD/src" >&2; exit 1; }
 [ -e "$DEST" ] && { echo "destination exists: $DEST" >&2; exit 1; }
 
-mkdir -p "$DEST"
+HARNESS="$DEST/benchmarks/llm"
+mkdir -p "$HARNESS"
+ln -s "$MINUSPOD/src" "$DEST/src"
+
 # Source and corpus, but none of the recorded runs.
 for item in src pyproject.toml uv.lock prompts scripts README.md; do
-    [ -e "$SRC/$item" ] && cp -R "$SRC/$item" "$DEST/"
+    [ -e "$SRC/$item" ] && cp -R "$SRC/$item" "$HARNESS/"
 done
-mkdir -p "$DEST/data" "$DEST/results/raw"
-cp -R "$SRC/data/corpus" "$DEST/data/corpus"
-[ -d "$SRC/data/pricing_snapshots" ] && cp -R "$SRC/data/pricing_snapshots" "$DEST/data/"
+mkdir -p "$HARNESS/data" "$HARNESS/results/raw"
+cp -R "$SRC/data/corpus" "$HARNESS/data/corpus"
+[ -d "$SRC/data/pricing_snapshots" ] && cp -R "$SRC/data/pricing_snapshots" "$HARNESS/data/"
 
-echo "isolated harness: $DEST"
+TOOLS="$(cd "$(dirname "$0")" && pwd)"
+echo "isolated harness: $HARNESS"
 echo
 echo "Next:"
-echo "  cp $(dirname "$0")/../benchmark.local.toml.example $DEST/benchmark.toml"
-echo "  \$EDITOR $DEST/benchmark.toml     # set the vLLM base_url"
-echo "  cd $DEST && uv sync && uv add flask"
+echo "  cp $TOOLS/../benchmark.local.toml.example $HARNESS/benchmark.toml"
+echo "  \$EDITOR $HARNESS/benchmark.toml     # set the vLLM base_url"
+echo "  cd $HARNESS && uv sync && uv add flask"
 echo "  export SEGUE_LOCAL_API_KEY=dummy"
-echo "  uv run benchmark run --dry-run   # expect one model's worth of calls"
+echo "  uv run benchmark run --dry-run       # expect 171"
