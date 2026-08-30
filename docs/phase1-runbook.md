@@ -132,10 +132,11 @@ with and without the JSON constraint the harness applies. What to look for:
   per call and reads as a hang from the harness side. Prose that starts "The
   user wants me to" is the thinking-template mismatch above, not a bad
   fine-tune; serve with `--default-chat-template-kwargs` and retest.
-- Latency in seconds. If one sequential window takes minutes, the harness will
-  time out no matter how the concurrency is set. Pass `--max-tokens 512` while
-  iterating: a real answer runs 120 to 300 tokens, so a runaway surfaces in a
-  minute instead of ten.
+- Latency in seconds. A healthy window takes 4 to 5 seconds and about 100
+  output tokens, which puts a 171 window single-trial run near 15 minutes. If
+  one sequential window takes minutes, the harness will time out no matter how
+  the concurrency is set. Pass `--max-tokens 512` while iterating so a runaway
+  surfaces in a minute instead of ten.
 
 ## 6. Score with the MinusPod benchmark harness
 

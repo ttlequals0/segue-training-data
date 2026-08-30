@@ -107,7 +107,7 @@ def main():
 
     modes = ['json_object'] if args.skip_plain else ['json_object', None]
     system_cache = {}
-    failures = 0
+    failures = {mode or 'text': 0 for mode in modes}
 
     for ex in examples:
         ref = ex['prompt']['system']
@@ -115,12 +115,13 @@ def main():
             system_cache[ref] = load_prompt(ref)
         print(f"\n=== {ex['id']} (expects {len(ex['completion'])} ad(s)) ===")
         for mode in modes:
+            key = mode or 'text'
             label = mode or 'no response_format'
             res = call(args.base_url, args.model, system_cache[ref],
                        ex['prompt']['user'], args.max_tokens, args.timeout, mode,
                        disable_thinking=args.no_thinking)
             if not res['ok']:
-                failures += 1
+                failures[key] += 1
                 print(f"  {label}: HTTP {res['status']} after "
                       f"{res['elapsed']:.1f}s -> {res['body']}")
                 continue
@@ -132,17 +133,22 @@ def main():
                   f"out_tokens={usage.get('completion_tokens')}  "
                   f"in_tokens={usage.get('prompt_tokens')}")
             if shape != 'array':
-                failures += 1
+                failures[key] += 1
                 print(f"    raw: {res['text'][:300]!r}")
             if res['finish_reason'] == 'length':
-                failures += 1
+                failures[key] += 1
                 print('    hit max_tokens: the model never emitted a stop token')
 
-    print(f"\n{failures} problem(s) across {len(examples)} window(s) "
-          f"x {len(modes)} mode(s)")
-    print('The harness parses a JSON array. Any shape other than "array" '
-          'lowers JSON compliance; finish=length means generation ran away.')
-    sys.exit(1 if failures else 0)
+    total = len(examples)
+    print()
+    for key, count in failures.items():
+        print(f"{key}: {total - count}/{total} clean")
+    if failures.get('json_object') and not failures.get('text', 0):
+        print('Expected against vLLM: its json_object grammar forces an '
+              'object. Set response_format = "text" in benchmark.toml; the '
+              'text column is the path the harness will use.')
+    # Only the text path gates, since that is what the benchmark config uses.
+    sys.exit(1 if failures.get('text', 0) else 0)
 
 
 if __name__ == '__main__':

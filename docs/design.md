@@ -93,6 +93,9 @@ Done so far:
   Final train nll 0.275, test nll 0.282 on the in-run split.
 - Merged weights exported and served with vLLM on a 16 GB card. See
   `phase1-runbook.md` for the serving config and the flags it needs.
+- Serving verified against real windows: clean JSON arrays, correct stop
+  behavior, and 4 to 5 seconds per window, which puts a single-trial
+  benchmark run at roughly 15 minutes.
 
 Next up:
 
