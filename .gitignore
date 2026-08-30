@@ -1,0 +1,9 @@
+.local/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+train.jsonl
+val.jsonl
+data/candidates/
+.env

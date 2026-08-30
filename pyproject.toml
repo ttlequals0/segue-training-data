@@ -1,0 +1,23 @@
+[project]
+name = "segue-tools"
+version = "0.1.0"
+description = "Extraction and dataset tooling for the Segue ad-detection model"
+requires-python = ">=3.12"
+dependencies = [
+    # Needed because tools import MinusPod's ad_detector for windowing and
+    # prompt formatting; that package imports its LLM client stack.
+    "anthropic>=0.39",
+    "openai>=1.50",
+    "requests>=2.31",
+    "rapidfuzz>=3.10",
+    "jsonschema>=4.21",
+]
+
+[project.optional-dependencies]
+train = [
+    "tinker",
+    "tinker-cookbook",
+]
+
+[tool.uv]
+package = false

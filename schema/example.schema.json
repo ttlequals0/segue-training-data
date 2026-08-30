@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Segue training example (one transcript window)",
+  "type": "object",
+  "required": ["id", "source", "tier", "prompt", "completion", "provenance"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "source": {
+      "type": "object",
+      "required": ["feed", "episode_id", "window"],
+      "additionalProperties": false,
+      "properties": {
+        "feed": {"type": "string"},
+        "episode_id": {"type": "string"},
+        "window": {"type": "integer", "minimum": 0},
+        "total_windows": {"type": "integer", "minimum": 1},
+        "license": {"type": "string"},
+        "instance": {"type": "string"}
+      }
+    },
+    "tier": {
+      "type": "string",
+      "enum": ["human_verified", "machine_accepted", "hard_negative", "synthetic"]
+    },
+    "prompt": {
+      "type": "object",
+      "required": ["system", "user", "window_start", "window_end"],
+      "additionalProperties": false,
+      "properties": {
+        "system": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "user": {"type": "string", "minLength": 1},
+        "window_start": {"type": "number", "minimum": 0},
+        "window_end": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "completion": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["start", "end", "confidence", "category", "reason", "end_text"],
+        "additionalProperties": false,
+        "properties": {
+          "start": {"type": "number", "minimum": 0},
+          "end": {"type": "number", "exclusiveMinimum": 0},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "category": {
+            "type": "string",
+            "enum": ["sponsor", "cross_promo", "self_promo", "interaction", "intro", "outro", "recap"]
+          },
+          "reason": {"type": "string"},
+          "end_text": {"type": "string"}
+        }
+      }
+    },
+    "teacher": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model": {"type": ["string", "null"]}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["extracted_at", "extractor_version"],
+      "additionalProperties": false,
+      "properties": {
+        "reviewed": {"type": "boolean"},
+        "corrected": {"type": "boolean"},
+        "category_source": {"type": "string", "enum": ["original", "backfill_rules", "backfill_llm"]},
+        "audio_context_omitted": {"type": "boolean"},
+        "extracted_at": {"type": "string"},
+        "app_version": {"type": "string"},
+        "extractor_version": {"type": "string"}
+      }
+    }
+  }
+}

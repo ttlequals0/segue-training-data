@@ -1,0 +1,16 @@
+# Benchmark corpus episodes. Eval-only: the extractor must never emit these.
+# Format: <podcast_slug>/<episode_id>
+crime-junkie/8ce498f299d7
+ai-cloud-essentials/e8dc897fbd6b
+daily-tech-news-show/b576979e1fe8
+daily-tech-news-show/c1904b8605f7
+daily-gist-chicago/70a82fe93a5c
+drink-champs/30c9a2d49f13
+glt1412515089/373d5ba5007b
+on-air-with-dan-and-alex2/574e4f303730
+the-brilliant-idiots/0bb9bf634c8e
+it-s-a-thing/e339179dfad6
+tosh-show/5f6894439bb6
+the-tim-dillon-show/f62bd5fa1cfe
+security-now-audio/2850b24903b2
+oxide-and-friends/ce789ff5b62e
