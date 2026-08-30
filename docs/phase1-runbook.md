@@ -79,6 +79,19 @@ Two things worth knowing before you watch the logs:
   Mamba cache blocks available at this context length and memory fraction, and
   the engine aborts during CUDA graph capture with
   `max_num_seqs (256) exceeds available Mamba cache blocks`.
+- The card has to be empty before startup. vLLM reserves its fraction of
+  total VRAM up front, so a leftover process holding a few GiB aborts the
+  engine with `Free memory on device cuda:0 ... is less than desired GPU
+  memory utilization`. Note that the device pinned by `device_ids` appears
+  as `cuda:0` inside the container, so check that host GPU with
+  `nvidia-smi --query-compute-apps=pid,used_memory,name --format=csv -i <n>`
+  and clear stale containers with `docker rm -f segue-vllm` plus
+  `docker compose down --remove-orphans`. If the memory belongs to something
+  that has to keep running, fit inside what is left instead:
+  `--gpu-memory-utilization 0.60 --max-model-len 12288 --max-num-seqs 16`.
+  12288 still clears the largest real prompt, which is about 6.5k tokens
+  plus a 4096 token answer, but it leaves under a gigabyte of KV cache, so
+  drop the harness to `max_concurrent_calls = 1` as well.
 
 Confirm it is up:
 
