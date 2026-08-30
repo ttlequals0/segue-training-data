@@ -84,6 +84,7 @@ def main():
         shuffle_seed=13,
     )
     config = train.Config(
+	recipe_name="segue_lora_phase1",
         log_path=log_path,
         model_name=args.model,
         dataset_builder=dataset_builder,
