@@ -110,14 +110,19 @@ uv run python tools/smoke_test.py --base-url http://<gpu-host>:8123/v1 --ads-onl
 It reports response shape, ad count, finish reason, token usage, and latency,
 with and without the JSON constraint the harness applies. What to look for:
 
-- `shape=array` in both modes. The harness parses a JSON array. If the
-  constrained mode returns an object, the grammar and the fine-tune disagree,
-  and the fix is `response_format = "text"` in the benchmark config.
+- `shape=array`. Under `json_object` vLLM will not give you one: its grammar
+  forces a JSON object, so the model returns a single ad dict instead of the
+  array it was trained to emit, and every call scores as a compliance
+  failure. Confirmed on the first checkpoint. Set `response_format = "text"`
+  in the benchmark config, and note that deleting the line instead falls back
+  to the `json_object` default.
 - `finish=stop`, not `finish=length`. A run to the token cap means the model
   never emitted a stop token, which at roughly 30 tokens per second is minutes
   per call and reads as a hang from the harness side.
 - Latency in seconds. If one sequential window takes minutes, the harness will
-  time out no matter how the concurrency is set.
+  time out no matter how the concurrency is set. Pass `--max-tokens 512` while
+  iterating: a real answer runs 120 to 300 tokens, so a runaway surfaces in a
+  minute instead of ten.
 
 ## 6. Score with the MinusPod benchmark harness
 

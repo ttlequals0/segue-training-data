@@ -39,12 +39,13 @@ max_retries = 0
 # length sequences, so keep the harness at or below that.
 max_concurrent_calls = 2
 max_concurrent_per_provider = 2
-# The harness parses a JSON array. Confirm with tools/smoke_test.py that the
-# served model returns an array under this setting before a full run. If the
-# grammar forces an object instead, set this to "text": the harness only
-# sends the constraint when the value is exactly "json_object", and omitting
-# the line falls back to the same "json_object" default.
-response_format = "json_object"
+# Must be "text" against vLLM. The harness parses a JSON array, but vLLM
+# answers response_format=json_object with a grammar that forces a JSON
+# object, so the model returns one ad dict instead of the array it was
+# trained to emit and every call scores as a compliance failure. The
+# constraint is only sent when this value is exactly "json_object"; deleting
+# the line falls back to that same default, so set it explicitly.
+response_format = "text"
 
 [corpus]
 path = "data/corpus"

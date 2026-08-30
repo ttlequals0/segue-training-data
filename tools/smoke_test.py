@@ -84,7 +84,7 @@ def main():
                     help='model id as vLLM registered it')
     ap.add_argument('--n', type=int, default=3, help='windows to send')
     ap.add_argument('--max-tokens', type=int, default=4096,
-                    help='matches the harness default')
+                    help='harness default; lower it to catch a runaway fast')
     ap.add_argument('--timeout', type=int, default=600)
     ap.add_argument('--ads-only', action='store_true',
                     help='only send windows that contain ads')
