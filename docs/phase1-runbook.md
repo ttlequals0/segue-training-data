@@ -140,23 +140,31 @@ with and without the JSON constraint the harness applies. What to look for:
 
 ## 6. Score with the MinusPod benchmark harness
 
-Install the harness dependencies first. The benchmark imports shared modules
-from MinusPod's `src/`, which pull in Flask:
+Do not run this inside the MinusPod checkout. The harness writes to
+`<package root>/results`, which is tracked in git and holds the published
+multi-model history, so a local run rewrites those files and merges local
+rows into the shared report. Copy the harness out first:
 
 ```sh
-cd <minuspod>/benchmarks/llm
-uv add flask
+tools/setup_isolated_benchmark.sh <minuspod> ~/segue-benchmark
+cp benchmark.local.toml.example ~/segue-benchmark/benchmark.toml
+$EDITOR ~/segue-benchmark/benchmark.toml     # set the vLLM base_url
+cd ~/segue-benchmark && uv sync && uv add flask
 ```
 
-Copy `benchmark.local.toml.example` from this repo to
-`<minuspod>/benchmarks/llm/benchmark.toml` and fill in the host. That template
-carries a one-model roster and settings tuned for a single local GPU. Then:
+The Flask dependency is needed because the harness imports shared modules
+from MinusPod's `src/`, which pull it in.
 
 ```sh
 export SEGUE_LOCAL_API_KEY=dummy
-uv run benchmark run --dry-run     # prints the call count
+uv run benchmark run --dry-run
 uv run benchmark run --snapshot prompts/2026-08.txt
 ```
+
+Check the dry-run count before committing to a run. One model at one trial
+over the 14 episode corpus is 171 calls. A number in the tens of thousands
+means the shipped multi-model roster is still in play, which would spend real
+money on hosted providers, so fix the config rather than start the run.
 
 There is no concurrency flag. Concurrency lives in the config as
 `max_concurrent_calls` and `max_concurrent_per_provider`, and retries as
