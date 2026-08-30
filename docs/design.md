@@ -38,6 +38,14 @@ touching the data tooling.
   prints that overlap so scores are read honestly.
 - Validation split is by feed, not by random window, so val measures
   generalization to unseen shows.
+- The answer has to be prefix-invariant. Every assistant turn in the data is
+  a bare JSON array and the system prompt already forbids prose, but that is
+  not enough on its own: served through a template that opens a think block,
+  the first checkpoint answered in prose and ran to the token cap, because
+  that prompt shape never appeared in training. Serving with
+  `--default-chat-template-kwargs '{"enable_thinking": false}'` fixes it, and
+  training on both the open and closed prefixes with the same JSON target
+  removes the dependence on getting the serving flag right.
 - Base model: Qwen, chosen from MinusPod benchmark results. Primary target is
   the smallest current-generation dense model Tinker hosts (Qwen3.5-4B at
   time of writing), with a larger variant as a quality ceiling for bigger
@@ -49,7 +57,10 @@ touching the data tooling.
 1. Vertical slice (current): minimal extractor, small LoRA run on Tinker,
    serve with vLLM, score with the MinusPod benchmark harness against the
    frozen prompt. Deliverable: a scored benchmark row and a working pipeline.
-2. Dataset build-out: full tier assignment, hard negatives from rejected
+2. Dataset build-out: prefix-invariant training (every example rendered under
+   both the thinking-open and thinking-closed assistant prefixes against the
+   same JSON target, so no serving flag is load-bearing); full tier
+   assignment, hard negatives from rejected
    markers, category backfill for older markers (rules first, then LLM
    few-shot seeded from already-categorized markers, written back through a
    new MinusPod API endpoint), augmentation (community-pattern injection,

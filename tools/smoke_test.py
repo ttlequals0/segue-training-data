@@ -30,7 +30,8 @@ def load_windows(limit, only_with_ads):
     return out
 
 
-def call(base_url, model, system, user, max_tokens, timeout, response_format):
+def call(base_url, model, system, user, max_tokens, timeout, response_format,
+         disable_thinking=False):
     payload = {
         'model': model,
         'temperature': 0.0,
@@ -42,6 +43,11 @@ def call(base_url, model, system, user, max_tokens, timeout, response_format):
     }
     if response_format:
         payload['response_format'] = {'type': response_format}
+    if disable_thinking:
+        # Training used Tinker's disable-thinking renderer, which closes the
+        # think block before the answer. vLLM applies the base template,
+        # which opens it, so the model reasons in prose instead.
+        payload['chat_template_kwargs'] = {'enable_thinking': False}
     t0 = time.perf_counter()
     r = requests.post(f"{base_url.rstrip('/')}/chat/completions",
                       json=payload, timeout=timeout,
@@ -90,6 +96,9 @@ def main():
                     help='only send windows that contain ads')
     ap.add_argument('--skip-plain', action='store_true',
                     help='only test the json_object path')
+    ap.add_argument('--no-thinking', action='store_true',
+                    help='send chat_template_kwargs enable_thinking=false, '
+                         'matching how the model was trained')
     args = ap.parse_args()
 
     examples = load_windows(args.n, args.ads_only)
@@ -108,7 +117,8 @@ def main():
         for mode in modes:
             label = mode or 'no response_format'
             res = call(args.base_url, args.model, system_cache[ref],
-                       ex['prompt']['user'], args.max_tokens, args.timeout, mode)
+                       ex['prompt']['user'], args.max_tokens, args.timeout, mode,
+                       disable_thinking=args.no_thinking)
             if not res['ok']:
                 failures += 1
                 print(f"  {label}: HTTP {res['status']} after "

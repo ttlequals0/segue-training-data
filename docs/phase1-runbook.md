@@ -66,9 +66,20 @@ services:
       --gpu-memory-utilization 0.90
       --max-num-seqs 64
       --language-model-only
+      --default-chat-template-kwargs '{"enable_thinking": false}'
       --host 0.0.0.0
       --port 8000
 ```
+
+`--default-chat-template-kwargs` is the flag that makes serving match
+training, and without it the model is unusable. Tinker's
+`qwen3_5_disable_thinking` renderer closes the think block before the answer,
+which is what teaches the model to open with a JSON array. vLLM applies the
+base Qwen3.5 template, which leaves the block open, so the model reasons in
+prose instead and runs to the token cap. The flag makes the server close the
+block the same way. A client can still override it per request with
+`chat_template_kwargs`, which is what `tools/smoke_test.py --no-thinking`
+does.
 
 Two things worth knowing before you watch the logs:
 
@@ -118,7 +129,9 @@ with and without the JSON constraint the harness applies. What to look for:
   to the `json_object` default.
 - `finish=stop`, not `finish=length`. A run to the token cap means the model
   never emitted a stop token, which at roughly 30 tokens per second is minutes
-  per call and reads as a hang from the harness side.
+  per call and reads as a hang from the harness side. Prose that starts "The
+  user wants me to" is the thinking-template mismatch above, not a bad
+  fine-tune; serve with `--default-chat-template-kwargs` and retest.
 - Latency in seconds. If one sequential window takes minutes, the harness will
   time out no matter how the concurrency is set. Pass `--max-tokens 512` while
   iterating: a real answer runs 120 to 300 tokens, so a runaway surfaces in a
