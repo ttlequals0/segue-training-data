@@ -16,6 +16,13 @@ the effort goes into data breadth. Training runs on
 plain chat-format JSONL, so a local trainer can replace Tinker later without
 touching the data tooling.
 
+The trainer is deliberately a swappable backend. Training and evaluation are
+expected to move to local hardware, so nothing outside `tools/train_tinker.py`
+may assume Tinker: the dataset format, the prompt store, and the benchmark
+path all stay trainer-agnostic. Enough unified memory locally also opens up
+full-rank fine-tuning of the 4B and a larger ceiling model, neither of which
+changes anything upstream of the trainer.
+
 ## Design decisions
 
 - Train on the production prompt format verbatim. MinusPod's database stores
@@ -97,10 +104,22 @@ Done so far:
   behavior, and 4 to 5 seconds per window, which puts a single-trial
   benchmark run at roughly 15 minutes.
 
+- Phase 1 is complete. The checkpoint scored F0.5 0.686 with 1.00 JSON
+  compliance, both no-ad controls passed, 3.6s median per window, at no cost
+  per episode. That sits between `deepseek-v3.2` and `qwen3.7-flash` on the
+  published leaderboard, against 0.781 for the hosted model it would replace,
+  and above every untuned open-weight entry there. Full numbers in
+  `runs/20260830-162400-results.md`.
+
 Next up:
 
-- Score the served checkpoint with the MinusPod benchmark harness, and score
-  the untuned base the same way for comparison.
+- Phase 2: more data and longer training. The failure is entirely recall
+  (0.738 precision against 0.592 recall), concentrated in short ads, 0.25 at
+  under 30 seconds, and post-roll ads at 0.36. The model merges adjacent
+  spots into one span, so the other ads in a block become misses.
+- Score the untuned base the same way, for a clean before and after.
+- Rerun against the frozen 2026-08 prompt snapshot so the row is directly
+  comparable to the published table.
 
 Open items and known gaps:
 
@@ -113,7 +132,10 @@ Open items and known gaps:
 - Markers that predate MinusPod's category field are skipped until the phase
   2 backfill.
 - 8 of the 17 training feeds are shows that also appear in the benchmark
-  corpus. No benchmark episode is trained on, but the model has seen other
-  episodes of those shows. Phase 1 scores split into a five-feed
-  generalization signal and an eight-feed same-show signal; phase 2 should
-  widen the training feeds.
+  corpus, though never the same episodes. Phase 1 measured the effect:
+  episodes whose feed appeared in training averaged F1 0.650 against 0.617
+  for feeds never trained on, a 0.033 gap across six episodes per side. That
+  is noise, so the score reflects generalization rather than memorized shows.
+  Worth re-measuring as the training set grows.
+- One window took 901 seconds against a 20 second p99. Cause unknown; watch
+  for it on the next run.
