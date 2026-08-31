@@ -6,6 +6,18 @@ find advertisement segments in podcast transcripts, assign each one a category
 (sponsor, cross_promo, self_promo, interaction), and answer in the JSON format
 MinusPod's processing pipeline expects.
 
+## Status
+
+The first checkpoint is trained and scored: a LoRA fine-tune of Qwen3.5-4B on
+156 examples reaching tier B, F0.5 0.686, with 1.00 JSON compliance and both
+no-ad control episodes passed, running at 3.6 seconds per window on a 16 GB
+card at no per-episode cost. Placed against the roster in [MinusPod's
+benchmark report](https://github.com/ttlequals0/MinusPod/blob/main/benchmarks/llm/results/report.md),
+that ties `gemini-3.1-flash-lite` and clears every untuned open-weight entry.
+
+Full numbers are in `runs/20260830-162400-results.md`. Phase 2 widens the
+dataset; the plan is in `docs/phase2-data-plan.md`.
+
 ## What is in here
 
 | Path | Contents |
@@ -14,8 +26,10 @@ MinusPod's processing pipeline expects.
 | `data/holdout.txt` | Benchmark episodes that must never appear in training data |
 | `prompts/<sha256>.txt` | Deduplicated system prompts referenced by examples |
 | `schema/example.schema.json` | JSON Schema for a training example |
-| `tools/` | Extraction, validation, dataset build, and training scripts |
-| `runs/` | Config snapshots for each training run |
+| `tools/` | Extraction, validation, dataset build, training, export, and evaluation scripts |
+| `runs/` | Config snapshot and scored results for each training run |
+| `docs/` | Design, phase 1 runbook, phase 2 data plan |
+| `benchmark.local.toml.example` | Benchmark harness config for scoring a locally served checkpoint |
 
 Each example pairs a fully rendered detection prompt (the same prompt MinusPod
 sends in production) with the ad markers that survived MinusPod's validation,
@@ -36,6 +50,8 @@ All commands run from the repo root with [uv](https://docs.astral.sh/uv/).
 The extractor imports code from a MinusPod checkout; clone MinusPod next to
 this repo or set `SEGUE_MINUSPOD_SRC`.
 
+Build a dataset:
+
 ```sh
 # Pull examples out of a MinusPod database copy (never the live file)
 uv run python tools/extract.py --db .local/minuspod.db --limit 25
@@ -43,12 +59,48 @@ uv run python tools/extract.py --db .local/minuspod.db --limit 25
 # Check every example: schema, holdout, prompt store, window bounds
 uv run python tools/validate.py
 
-# Build chat-format train/val JSONL; val feeds are held out whole
-uv run python tools/build_dataset.py --val-feeds feed-a,feed-b
-
-# LoRA-train on Tinker (needs TINKER_API_KEY and: uv sync --extra train)
-uv run python tools/train_tinker.py --train .local/train.jsonl
+# Build chat-format train/val JSONL; val feeds are held out whole.
+# Name two or three feeds, not the whole roster: every feed listed goes to
+# val, so passing all of them leaves an empty training file.
+uv run python tools/build_dataset.py --val-feeds feed-a,feed-b,feed-c
 ```
+
+Train and export (needs `TINKER_API_KEY` and `uv sync --extra train`):
+
+```sh
+uv run python tools/train_tinker.py --list-models
+uv run python tools/train_tinker.py --train .local/train.jsonl
+uv run python tools/export_model.py --tinker-path "tinker://<run-id>/sampler_weights/final"
+```
+
+Serve and check before spending time on a full benchmark run:
+
+```sh
+# Response shape, finish reason, and latency on real windows
+uv run python tools/smoke_test.py --base-url http://<gpu-host>:8123/v1 --ads-only --n 3
+
+# Compare the tinker renderer and chat-template assistant prefixes
+uv run python tools/inspect_renderer.py
+```
+
+`docs/phase1-runbook.md` has the vLLM serving config, the flags a 16 GB card
+needs, and the failures worth recognizing on the way.
+
+## Evaluation
+
+Checkpoints are scored by MinusPod's LLM benchmark harness against a
+human-verified corpus. Run it from a copy, never inside the MinusPod
+checkout: the harness writes to a results directory that is tracked in git
+and holds the published multi-model history.
+
+```sh
+tools/setup_isolated_benchmark.sh <minuspod> ~/segue-benchmark
+cp benchmark.local.toml.example ~/segue-benchmark/benchmarks/llm/benchmark.toml
+```
+
+Set the vLLM base URL in that config, then follow the runbook. The corpus
+episodes are listed in `data/holdout.txt`, excluded from training by the
+extractor and checked again by the validator.
 
 ## Contributing data
 
@@ -57,9 +109,5 @@ with the resulting `data/examples/` files. `tools/validate.py` must pass.
 Set `--instance` to a stable pseudonym and `--license` to the license of the
 source shows if you know it.
 
-## Evaluation
-
-The model is scored by MinusPod's LLM benchmark harness (`benchmarks/llm` in
-the MinusPod repo) against a human-verified corpus. Those benchmark episodes
-are listed in `data/holdout.txt` and are excluded from training by the
-extractor and checked again by the validator.
+The categories `interaction` and `cross_promo` are the thinnest part of the
+dataset, so episodes carrying either are the most useful thing to send.
