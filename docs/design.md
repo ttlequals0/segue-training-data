@@ -72,7 +72,9 @@ changes anything upstream of the trainer.
 1. Vertical slice (current): minimal extractor, small LoRA run on Tinker,
    serve with vLLM, score with the MinusPod benchmark harness against the
    frozen prompt. Deliverable: a scored benchmark row and a working pipeline.
-2. Dataset build-out: prefix-invariant training (every example rendered under
+2. Dataset build-out, planned in detail against a measured inventory of the
+   source instance in `phase2-data-plan.md`:
+   prefix-invariant training (every example rendered under
    both the thinking-open and thinking-closed assistant prefixes against the
    same JSON target, so no serving flag is load-bearing); full tier
    assignment, hard negatives from rejected
