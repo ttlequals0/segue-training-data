@@ -53,10 +53,18 @@ changes anything upstream of the trainer.
   `--default-chat-template-kwargs '{"enable_thinking": false}'` fixes it, and
   training on both the open and closed prefixes with the same JSON target
   removes the dependence on getting the serving flag right.
-- Base model: Qwen, chosen from MinusPod benchmark results. Primary target is
-  the smallest current-generation dense model Tinker hosts (Qwen3.5-4B at
-  time of writing), with a larger variant as a quality ceiling for bigger
-  cards. Thinking mode stays off: the task needs fast deterministic JSON.
+- Base model: Qwen, chosen from MinusPod benchmark results. Qwen3.5-4B is the
+  primary target and is also the newest 4B-class dense Qwen; the 3.6 and 3.8
+  generations shipped nothing dense under 27B, and Qwen3.8-Flash-Next is a
+  125B-total MoE under a non-Apache license. Inference picks the size, not
+  training: a 27B at int4 is 14 to 15 GB of weights alone and leaves no room
+  for a 16k KV cache on a 16 GB card. Qwen3.8-27B stays the ceiling variant
+  for 24 GB and up. Thinking mode stays off: the task needs fast
+  deterministic JSON.
+- Local training does not relax the serving budget, but it does lift the
+  training ceiling. A full fine-tune of the 4B, rather than LoRA at rank 16,
+  is the largest lever available against the same deployment target, and LoRA
+  rank plausibly limits how far the span-merging behavior can be retrained.
 - Release formats: merged bf16, AWQ, and GGUF q4_K_M for Ollama users.
 
 ## Phases
@@ -104,12 +112,13 @@ Done so far:
   behavior, and 4 to 5 seconds per window, which puts a single-trial
   benchmark run at roughly 15 minutes.
 
-- Phase 1 is complete. The checkpoint scored F0.5 0.686 with 1.00 JSON
-  compliance, both no-ad controls passed, 3.6s median per window, at no cost
-  per episode. That sits between `deepseek-v3.2` and `qwen3.7-flash` on the
-  published leaderboard, against 0.781 for the hosted model it would replace,
-  and above every untuned open-weight entry there. Full numbers in
-  `runs/20260830-162400-results.md`.
+- Phase 1 is complete. The checkpoint scored tier B, F0.5 0.686, with 1.00
+  JSON compliance, both no-ad controls passed, 3.6s median per window, at no
+  cost per episode. Placed against the roster in [MinusPod's benchmark
+  report](https://github.com/ttlequals0/MinusPod/blob/main/benchmarks/llm/results/report.md)
+  that ties `gemini-3.1-flash-lite` and clears every untuned open-weight
+  entry, against tier A and 0.781 for the hosted model it would replace.
+  Full numbers in `runs/20260830-162400-results.md`.
 
 Next up:
 
