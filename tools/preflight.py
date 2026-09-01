@@ -33,13 +33,26 @@ def load_rows(path):
     return rows
 
 
-def check_disjoint(manifest_path):
+def check_disjoint(manifest_path, train_path, val_path):
     if not Path(manifest_path).exists():
         return f'{manifest_path} missing; rebuild the dataset'
-    ids = json.loads(Path(manifest_path).read_text())['ids']
+    manifest = json.loads(Path(manifest_path).read_text())
+    ids = manifest['ids']
     overlap = set(ids['train']) & set(ids['val'])
     if overlap:
         return f'train/val overlap: {sorted(overlap)[:5]}'
+
+    # Verify manifest sha256 hashes match actual files
+    if 'sha256' not in manifest:
+        return f'{manifest_path} missing sha256; rebuild the dataset'
+    manifest_sha256 = manifest['sha256']
+    train_hash = sha256_file(train_path)
+    val_hash = sha256_file(val_path)
+
+    if manifest_sha256.get('train') != train_hash:
+        return f'{manifest_path} is stale for train; rebuild the dataset'
+    if manifest_sha256.get('val') != val_hash:
+        return f'{manifest_path} is stale for val; rebuild the dataset'
     return None
 
 
@@ -132,7 +145,7 @@ def main():
     manifest_path = Path(args.train).parent / 'split_manifest.json'
 
     def disjoint():
-        err = check_disjoint(manifest_path)
+        err = check_disjoint(manifest_path, args.train, args.val)
         if err:
             raise SystemExit(err)
 

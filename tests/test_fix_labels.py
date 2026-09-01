@@ -64,7 +64,7 @@ def test_audio_only_span_dropped_unless_kept():
     assert fixed["completion"][0]["reason"] == "Ad break with a visible sign-off"
 
 
-def test_gaps_merged_and_end_text_recomputed():
+def test_gaps_merged_and_valid_end_text_preserved():
     fixed, _, fixes = fix_example(example([ad(0, 12), ad(20, 30)]), {})
     assert len(fixed["completion"]) == 1
     span = fixed["completion"][0]

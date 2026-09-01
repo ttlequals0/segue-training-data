@@ -3,6 +3,7 @@ import json
 import pytest
 
 from preflight import check, check_disjoint, expected_steps, load_rows
+from common import sha256_file
 
 
 def test_load_rows(tmp_path):
@@ -24,11 +25,43 @@ def test_expected_steps():
 
 
 def test_check_disjoint(tmp_path):
+    train_file = tmp_path / "train.jsonl"
+    val_file = tmp_path / "val.jsonl"
+    train_file.write_text('{"messages": []}\n')
+    val_file.write_text('{"messages": []}\n')
+
+    train_sha = sha256_file(train_file)
+    val_sha = sha256_file(val_file)
+
     m = tmp_path / "split_manifest.json"
-    m.write_text(json.dumps({"ids": {"train": ["a", "b"], "val": ["c"]}}))
-    assert check_disjoint(m) is None
-    m.write_text(json.dumps({"ids": {"train": ["a", "b"], "val": ["b"]}}))
-    assert "overlap" in check_disjoint(m)
+    m.write_text(json.dumps({
+        "ids": {"train": ["a", "b"], "val": ["c"]},
+        "sha256": {"train": train_sha, "val": val_sha}
+    }))
+    assert check_disjoint(m, train_file, val_file) is None
+
+    m.write_text(json.dumps({
+        "ids": {"train": ["a", "b"], "val": ["b"]},
+        "sha256": {"train": train_sha, "val": val_sha}
+    }))
+    assert "overlap" in check_disjoint(m, train_file, val_file)
+
+
+def test_check_disjoint_stale_manifest(tmp_path):
+    train_file = tmp_path / "train.jsonl"
+    val_file = tmp_path / "val.jsonl"
+    train_file.write_text('{"messages": []}\n')
+    val_file.write_text('{"messages": []}\n')
+
+    m = tmp_path / "split_manifest.json"
+    m.write_text(json.dumps({
+        "ids": {"train": ["a", "b"], "val": ["c"]},
+        "sha256": {"train": "wrong_train_hash", "val": "wrong_val_hash"}
+    }))
+
+    error = check_disjoint(m, train_file, val_file)
+    assert error is not None
+    assert "stale" in error
 
 
 def test_check_records_system_exit_without_propagating():

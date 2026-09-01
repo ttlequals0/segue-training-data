@@ -32,6 +32,10 @@ Run the current NGC PyTorch release for DGX Spark with the repo mounted:
     export HF_HOME=/path/with/space
     hf download Qwen/Qwen3.5-9B --revision <pinned-sha>
 
+    uv run python tools/build_dataset.py --val-feeds <feed1>,<feed2>,<feed3> --out-dir .local
+
+Build the dataset first; the val feeds come from the split manifest committed with prior runs or your workstation's .local directory.
+
     uv run python tools/preflight.py --revision <pinned-sha>
     uv run python tools/train_local.py --run-id r1 --revision <pinned-sha>
     uv run python tools/eval_generation.py --run-id r1 --revision <pinned-sha> \
