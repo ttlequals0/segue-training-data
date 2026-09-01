@@ -8,7 +8,7 @@ deterministic and inspectable; assertions fail closed on template drift.
 import hashlib
 
 
-class UnsupportedModelFamily(SystemExit):
+class UnsupportedModelFamily(Exception):
     pass
 
 
