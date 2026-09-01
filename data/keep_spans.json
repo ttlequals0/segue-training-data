@@ -1,0 +1,27 @@
+[
+  {
+    "id": "android-faithful/37187e901f71/w11",
+    "start": 5217.8,
+    "reason": "Injected network ad break that resumes and ends with an acast.com call to action in the following window"
+  },
+  {
+    "id": "android-faithful/37187e901f71/w12",
+    "start": 5217.8,
+    "reason": "Injected network ad read ending with an acast.com call to action"
+  },
+  {
+    "id": "andrew-schulz-s-flagrant-with-akaash-singh/3d7f90245e0d/w10",
+    "start": 4408.22,
+    "reason": "Host-read sponsor spot for Pepsi Zero Sugar ending with a same-day call to action"
+  },
+  {
+    "id": "cordkillers-only-audio/03589f490f93/w1",
+    "start": 643.5,
+    "reason": "Sponsor read for Superhuman ending with the URL repeated twice as a call to action"
+  },
+  {
+    "id": "security-now-audio/bb246c9c8976/w24",
+    "start": 10375.3,
+    "reason": "Network cross-promotion for a KQED show ending with a tap-to-listen call to action"
+  }
+]
