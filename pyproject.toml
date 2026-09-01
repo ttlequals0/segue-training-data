@@ -21,3 +21,8 @@ train = [
 
 [tool.uv]
 package = false
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+]
