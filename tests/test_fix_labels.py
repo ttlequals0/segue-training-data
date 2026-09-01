@@ -69,8 +69,30 @@ def test_gaps_merged_and_end_text_recomputed():
     assert len(fixed["completion"]) == 1
     span = fixed["completion"][0]
     assert span["start"] == 0 and span["end"] == 30
-    assert span["end_text"] == "acme example dot com today"
-    assert "merged_gaps" in fixes and "end_text_recomputed" in fixes
+    assert span["end_text"] == "x"
+    assert "merged_gaps" in fixes
+    assert "end_text_recomputed" not in fixes
+
+
+def test_recompute_end_text_straddling_segment_uses_proportional_prefix():
+    segs = parse_segments(USER)
+    # segment [20,30] straddles span_end=24: 40% of its 7 words -> first 3
+    assert recompute_end_text(segs, 20.0, 24.0) == "go to acme"
+
+
+def test_end_text_over_5_words_truncated_to_last_5_of_original():
+    long_text = "one two three four five six seven"
+    fixed, _, fixes = fix_example(
+        example([ad(100, 110, end_text=long_text)]), {})
+    assert fixed["completion"][0]["end_text"] == "three four five six seven"
+    assert "end_text_recomputed" in fixes
+
+
+def test_empty_end_text_recomputed_from_straddling_segment():
+    fixed, _, fixes = fix_example(
+        example([ad(20, 24, end_text="")]), {})
+    assert fixed["completion"][0]["end_text"] == "go to acme"
+    assert "end_text_recomputed" in fixes
 
 
 def test_clean_example_untouched():

@@ -2,7 +2,8 @@
 
 Drops outro spans (no phase 1 prompt has SHOW SEGMENTS), drops
 audio-only-evidence spans unless kept by data/keep_spans.json, merges
-sub-15s gaps, and recomputes every end_text from the window transcript.
+sub-15s gaps. end_text is left untouched when it is already 1-5 words;
+only truncated (>5 words) or empty end_text values are recomputed.
 
 Usage:
     uv run python tools/fix_labels.py --dry-run   # review drops first
@@ -34,16 +35,21 @@ def parse_segments(user_prompt):
 
 
 def recompute_end_text(segments, span_start, span_end, n=5):
-    """Last `n` transcript words from segments ending inside the span."""
+    """Last `n` transcript words from segments overlapping the span.
+
+    A segment straddling span_end contributes only its proportional prefix
+    (by word count), so post-span dialogue is never pulled in.
+    """
     words = []
     for s, e, text in segments:
         if e <= span_start or s >= span_end:
             continue
-        if e <= span_end + 2.0:
-            words.extend(text.split())
-    if not words:
-        words = [w for s, e, text in segments
-                 if s < span_end and e > span_start for w in text.split()]
+        seg_words = text.split()
+        if e <= span_end:
+            words.extend(seg_words)
+        else:
+            cut = round(len(seg_words) * (span_end - s) / (e - s))
+            words.extend(seg_words[:cut])
     return ' '.join(words[-n:])
 
 
@@ -77,8 +83,14 @@ def fix_example(ex, keep):
         fixes.append('merged_gaps')
     segments = parse_segments(ex['prompt']['user'])
     for ad in spans:
-        new_text = recompute_end_text(segments, ad['start'], ad['end'])
-        if new_text and new_text != ad['end_text']:
+        words = ad['end_text'].split()
+        if 1 <= len(words) <= 5:
+            continue
+        if len(words) > 5:
+            new_text = ' '.join(words[-5:])
+        else:
+            new_text = recompute_end_text(segments, ad['start'], ad['end'])
+        if new_text != ad['end_text']:
             ad['end_text'] = new_text
             if 'end_text_recomputed' not in fixes:
                 fixes.append('end_text_recomputed')
