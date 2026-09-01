@@ -54,3 +54,12 @@ def test_score_noad_false_positive():
     rows = [row([])]
     s = score(rows, [json.dumps([ad(0, 10)])])
     assert s["noad_fp"] == 1 and s["fp"] == 1
+
+
+def test_score_unparseable_noad_window():
+    rows = [row([])]
+    s = score(rows, ["garbage"])
+    assert s["json_compliance"] == 0.0
+    assert s["noad_windows"] == 1
+    assert s["noad_fp"] == 0 and s["fp"] == 0
+    assert s["fn"] == 0

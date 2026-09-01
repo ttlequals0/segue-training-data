@@ -48,6 +48,8 @@ def score(rows, predictions):
     start_deltas, end_deltas = [], []
     for row, pred in zip(rows, predictions):
         truth = _ranges(json.loads(row['messages'][2]['content']))
+        if not truth:
+            noad_windows += 1
         ads = parse_prediction(pred)
         if ads is None:
             fn += len(truth)
@@ -55,7 +57,6 @@ def score(rows, predictions):
         parsed += 1
         spans = _ranges(ads)
         if not truth:
-            noad_windows += 1
             noad_fp += len(spans)
             fp += len(spans)
             continue
@@ -95,7 +96,8 @@ def generate_all(model, tokenizer, rows, model_name, max_new_tokens=1024):
             out = model.generate(**ids, do_sample=False,
                                  max_new_tokens=max_new_tokens,
                                  pad_token_id=tokenizer.pad_token_id
-                                 or tokenizer.eos_token_id)
+                                 if tokenizer.pad_token_id is not None
+                                 else tokenizer.eos_token_id)
         text = tokenizer.decode(out[0][ids['input_ids'].shape[1]:],
                                 skip_special_tokens=True)
         outputs.append(text.strip())
@@ -137,7 +139,7 @@ def main():
     result = score(rows, predictions)
     out = REPO_ROOT / '.local' / f'eval-{args.run_id}.json'
     out.write_text(json.dumps(
-        {'args': {k: v for k, v in vars(args).items()},
+        {'args': vars(args),
          'metrics': result}, indent=2) + '\n')
     print(json.dumps(result, indent=2))
     print(f'written to {out}')
