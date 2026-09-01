@@ -45,7 +45,7 @@ def check_disjoint(manifest_path):
 
 def render_all(tokenizer, rows, model_name, max_length):
     lengths, categories, empty = [], {}, 0
-    for i, row in enumerate(rows):
+    for row in rows:
         enc = render.encode_example(tokenizer, row['messages'],
                                     model_name, max_length)
         lengths.append(enc['length'])
@@ -66,6 +66,20 @@ def render_all(tokenizer, rows, model_name, max_length):
 
 def expected_steps(n, batch_size, grad_accum, epochs):
     return max(1, math.ceil(n / (batch_size * grad_accum))) * epochs
+
+
+def check(name, fn, failures):
+    try:
+        result = fn()
+        if isinstance(result, list):
+            print(f'PASS {name}: {len(result)} rows')
+        else:
+            print(f'PASS {name}' + (f': {result}' if result else ''))
+        return result
+    except (Exception, SystemExit) as e:
+        print(f'FAIL {name}: {e}')
+        failures.append(name)
+        return None
 
 
 def optimizer_step_smoke(model_name, revision, attn, tokenizer, rows,
@@ -110,21 +124,11 @@ def main():
 
     failures = []
 
-    def check(name, fn):
-        try:
-            result = fn()
-            print(f'PASS {name}' + (f': {result}' if result else ''))
-            return result
-        except Exception as e:
-            print(f'FAIL {name}: {e}')
-            failures.append(name)
-            return None
-
     from transformers import AutoTokenizer
     tokenizer = AutoTokenizer.from_pretrained(args.model,
                                               revision=args.revision)
-    train_rows = check('train file', lambda: load_rows(args.train)) or []
-    val_rows = check('val file', lambda: load_rows(args.val)) or []
+    train_rows = check('train file', lambda: load_rows(args.train), failures) or []
+    val_rows = check('val file', lambda: load_rows(args.val), failures) or []
     manifest_path = Path(args.train).parent / 'split_manifest.json'
 
     def disjoint():
@@ -132,11 +136,11 @@ def main():
         if err:
             raise SystemExit(err)
 
-    check('split disjoint', disjoint)
+    check('split disjoint', disjoint, failures)
     train_stats = check('render train', lambda: render_all(
-        tokenizer, train_rows, args.model, args.max_length))
+        tokenizer, train_rows, args.model, args.max_length), failures)
     val_stats = check('render val', lambda: render_all(
-        tokenizer, val_rows, args.model, args.max_length))
+        tokenizer, val_rows, args.model, args.max_length), failures)
     steps = expected_steps(len(train_rows), args.batch_size,
                            args.grad_accum, args.epochs)
     print(f'INFO expected optimizer steps: {steps}')
@@ -144,13 +148,13 @@ def main():
     attn = 'sdpa'
     if args.device == 'cuda':
         import torch
-        check('cuda visible', lambda: torch.cuda.get_device_name(0))
+        check('cuda visible', lambda: torch.cuda.get_device_name(0), failures)
 
         def bf16():
             if not torch.cuda.is_bf16_supported():
                 raise SystemExit('bf16 unsupported')
 
-        check('bf16 supported', bf16)
+        check('bf16 supported', bf16, failures)
         try:
             import flash_attn  # noqa: F401
             attn = 'flash_attention_2'
@@ -160,7 +164,7 @@ def main():
         if not args.skip_model_step:
             check('optimizer step', lambda: optimizer_step_smoke(
                 args.model, args.revision, attn, tokenizer, train_rows,
-                args.max_length))
+                args.max_length), failures)
 
     if failures:
         raise SystemExit(f'preflight FAILED: {failures}')

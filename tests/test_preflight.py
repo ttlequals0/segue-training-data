@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from preflight import check_disjoint, expected_steps, load_rows
+from preflight import check, check_disjoint, expected_steps, load_rows
 
 
 def test_load_rows(tmp_path):
@@ -29,3 +29,29 @@ def test_check_disjoint(tmp_path):
     assert check_disjoint(m) is None
     m.write_text(json.dumps({"ids": {"train": ["a", "b"], "val": ["b"]}}))
     assert "overlap" in check_disjoint(m)
+
+
+def test_check_records_system_exit_without_propagating():
+    failures = []
+
+    def raises():
+        raise SystemExit("boom")
+
+    assert check("x", raises, failures) is None
+    assert failures == ["x"]
+
+
+def test_check_records_value_error():
+    failures = []
+
+    def raises():
+        raise ValueError("bad")
+
+    assert check("y", raises, failures) is None
+    assert failures == ["y"]
+
+
+def test_check_passes_through_result_on_success():
+    failures = []
+    assert check("z", lambda: 42, failures) == 42
+    assert failures == []
