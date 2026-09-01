@@ -6,6 +6,7 @@ torch = pytest.importorskip("torch")
 
 from train_local import (  # noqa: E402
     build_lora_config, expected_lora_params, make_collator, require_stamp,
+    build_training_args,
 )
 
 
@@ -46,13 +47,31 @@ def test_require_stamp_rejects_mismatch(tmp_path, monkeypatch):
     stamp = tmp_path / "preflight.json"
     monkeypatch.setattr(train_local, "STAMP", stamp)
     with pytest.raises(SystemExit, match="preflight"):
-        require_stamp(train, val, "m", "rev")
+        require_stamp(train, val, "m", "rev", 16384)
     from common import sha256_file
     stamp.write_text(json.dumps({
         "train_sha256": sha256_file(train), "val_sha256": sha256_file(val),
         "model": "m", "revision": "rev", "attn": "sdpa",
         "max_length": 16384}))
-    assert require_stamp(train, val, "m", "rev")["attn"] == "sdpa"
+    assert require_stamp(train, val, "m", "rev", 16384)["attn"] == "sdpa"
     train.write_text('{"changed": 1}\n')
     with pytest.raises(SystemExit, match="preflight"):
-        require_stamp(train, val, "m", "rev")
+        require_stamp(train, val, "m", "rev", 16384)
+    train.write_text("{}\n")
+    with pytest.raises(SystemExit, match="preflight"):
+        require_stamp(train, val, "m", "rev", 8192)
+
+
+def test_build_training_args_fields(tmp_path):
+    args = type('Args', (), {
+        'epochs': 3, 'batch_size': 2, 'grad_accum': 8, 'lr': 1e-4,
+        'seed': 13,
+    })()
+    targs = build_training_args(tmp_path, args)
+    assert targs.num_train_epochs == 3
+    assert targs.per_device_train_batch_size == 2
+    assert targs.gradient_accumulation_steps == 8
+    assert targs.learning_rate == 1e-4
+    assert targs.seed == 13
+    assert str(targs.eval_strategy) in ("steps", "IntervalStrategy.STEPS")
+    assert targs.metric_for_best_model == "eval_loss"

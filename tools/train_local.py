@@ -53,13 +53,13 @@ def make_collator(pad_id):
     return collate
 
 
-def require_stamp(train_path, val_path, model, revision):
+def require_stamp(train_path, val_path, model, revision, max_length):
     if not STAMP.exists():
         raise SystemExit('no preflight stamp; run tools/preflight.py first')
     stamp = json.loads(STAMP.read_text())
     expect = {'train_sha256': sha256_file(train_path),
               'val_sha256': sha256_file(val_path),
-              'model': model, 'revision': revision}
+              'model': model, 'revision': revision, 'max_length': max_length}
     for key, want in expect.items():
         if stamp.get(key) != want:
             raise SystemExit(
@@ -70,6 +70,37 @@ def require_stamp(train_path, val_path, model, revision):
 def load_rows(path):
     with open(path, encoding='utf-8') as f:
         return [json.loads(line) for line in f if line.strip()]
+
+
+def build_training_args(run_dir, args):
+    from transformers import TrainingArguments
+    import torch
+    has_cuda = torch.cuda.is_available()
+    return TrainingArguments(
+        output_dir=str(run_dir),
+        num_train_epochs=args.epochs,
+        per_device_train_batch_size=args.batch_size,
+        gradient_accumulation_steps=args.grad_accum,
+        learning_rate=args.lr,
+        lr_scheduler_type='linear',
+        warmup_ratio=0.03,
+        bf16=has_cuda,
+        use_cpu=not has_cuda,
+        gradient_checkpointing=True,
+        max_grad_norm=1.0,
+        logging_steps=1,
+        eval_strategy='steps',
+        eval_steps=10,
+        save_steps=20,
+        save_total_limit=3,
+        load_best_model_at_end=True,
+        metric_for_best_model='eval_loss',
+        greater_is_better=False,
+        seed=args.seed,
+        data_seed=args.seed,
+        report_to=[],
+        remove_unused_columns=False,
+    )
 
 
 def main():
@@ -92,7 +123,7 @@ def main():
     ap.add_argument('--seed', type=int, default=13)
     args = ap.parse_args()
 
-    stamp = require_stamp(args.train, args.val, args.model, args.revision)
+    stamp = require_stamp(args.train, args.val, args.model, args.revision, args.max_length)
     run_dir = REPO_ROOT / '.local' / 'runs' / args.run_id
     if run_dir.exists() and not args.resume:
         raise SystemExit(f'{run_dir} exists; pass --resume or a new --run-id')
@@ -144,34 +175,11 @@ def main():
     manifest_path = REPO_ROOT / 'runs' / f'{args.run_id}.json'
     manifest_path.write_text(json.dumps(run_manifest, indent=2) + '\n')
 
-    targs = TrainingArguments(
-        output_dir=str(run_dir),
-        num_train_epochs=args.epochs,
-        per_device_train_batch_size=args.batch_size,
-        gradient_accumulation_steps=args.grad_accum,
-        learning_rate=args.lr,
-        lr_scheduler_type='linear',
-        warmup_ratio=0.03,
-        bf16=True,
-        gradient_checkpointing=True,
-        max_grad_norm=1.0,
-        logging_steps=1,
-        eval_strategy='steps',
-        eval_steps=10,
-        save_steps=20,
-        save_total_limit=3,
-        load_best_model_at_end=True,
-        metric_for_best_model='eval_loss',
-        greater_is_better=False,
-        seed=args.seed,
-        data_seed=args.seed,
-        report_to=[],
-        remove_unused_columns=False,
-    )
+    targs = build_training_args(run_dir, args)
     trainer = Trainer(model=model, args=targs, train_dataset=train_enc,
                       eval_dataset=val_enc,
                       data_collator=make_collator(
-                          tokenizer.pad_token_id or tokenizer.eos_token_id))
+                          tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id))
     result = trainer.train(resume_from_checkpoint=args.resume)
     final_eval = trainer.evaluate()
 
