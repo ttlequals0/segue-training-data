@@ -4,7 +4,7 @@ torch = pytest.importorskip("torch")
 pytest.importorskip("peft")
 pytest.importorskip("transformers")
 
-from export_local import checksum_dir, generations_match  # noqa: E402
+from export_local import checksum_dir, generations_match, compute_logit_max_diff  # noqa: E402
 
 
 def tiny_pair():
@@ -49,3 +49,23 @@ def test_checksum_dir(tmp_path):
     sums = checksum_dir(tmp_path)
     assert set(sums) == {"a.bin", "sub/b.bin"}
     assert all(v.startswith("sha256:") for v in sums.values())
+
+
+def test_logit_max_diff_adapter_vs_merged():
+    a, b = tiny_pair()
+    ids = [torch.randint(0, 128, (1, 8)), torch.randint(0, 128, (1, 8))]
+    diff = compute_logit_max_diff(a, b, ids)
+    assert diff >= 0.0
+    assert diff < 1e-5
+
+
+def test_logit_max_diff_detects_difference():
+    a, _ = tiny_pair()
+    from transformers import LlamaConfig, LlamaForCausalLM
+    torch.manual_seed(99)
+    other = LlamaForCausalLM(LlamaConfig(
+        hidden_size=32, intermediate_size=64, num_hidden_layers=2,
+        num_attention_heads=4, num_key_value_heads=4, vocab_size=128)).eval()
+    ids = [torch.randint(0, 128, (1, 8))]
+    diff = compute_logit_max_diff(a, other, ids)
+    assert diff > 0.1

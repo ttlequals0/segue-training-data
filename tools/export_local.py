@@ -37,6 +37,18 @@ def generations_match(model_a, model_b, input_ids, max_new_tokens=128):
     return outs[0] == outs[1]
 
 
+def compute_logit_max_diff(model_a, model_b, ids_list):
+    import torch
+    max_diff = 0.0
+    for ids in ids_list:
+        with torch.no_grad():
+            logits_a = model_a(ids.to(model_a.device)).logits
+            logits_b = model_b(ids.to(model_b.device)).logits
+        diff = float((logits_a.cpu() - logits_b.cpu()).abs().max())
+        max_diff = max(max_diff, diff)
+    return max_diff
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--model', default='Qwen/Qwen3.5-9B')
@@ -75,15 +87,16 @@ def main():
         fixture_ids.append(tokenizer(prefix, add_special_tokens=False,
                                      return_tensors='pt')['input_ids'])
 
-    with torch.no_grad():
-        ref_logits = adapter_model(fixture_ids[0].to(adapter_model.device)).logits
+    if not fixture_ids:
+        raise SystemExit(f'no fixtures loaded from {args.fixtures}')
 
     merged = adapter_model.merge_and_unload()
     merged_out = out / 'merged'
     merged.save_pretrained(str(merged_out), safe_serialization=True)
     tokenizer.save_pretrained(str(merged_out))
     del adapter_model, merged, base
-    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     reloaded = AutoModelForCausalLM.from_pretrained(
         str(merged_out), dtype=torch.bfloat16, device_map='auto').eval()
@@ -92,12 +105,9 @@ def main():
         device_map='auto')
     adapter2 = PeftModel.from_pretrained(base2, str(adapter_out)).eval()
 
-    with torch.no_grad():
-        merged_logits = reloaded(fixture_ids[0].to(reloaded.device)).logits
-    logit_max_diff = float((ref_logits.cpu() - merged_logits.cpu())
-                           .abs().max())
     results = [generations_match(adapter2, reloaded, ids)
                for ids in fixture_ids]
+    logit_max_diff = compute_logit_max_diff(adapter2, reloaded, fixture_ids)
 
     export_manifest = manifest_mod.build_manifest(
         vars(args), {},
