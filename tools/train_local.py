@@ -74,8 +74,6 @@ def load_rows(path):
 
 def build_training_args(run_dir, args):
     from transformers import TrainingArguments
-    import torch
-    has_cuda = torch.cuda.is_available()
     return TrainingArguments(
         output_dir=str(run_dir),
         num_train_epochs=args.epochs,
@@ -84,8 +82,7 @@ def build_training_args(run_dir, args):
         learning_rate=args.lr,
         lr_scheduler_type='linear',
         warmup_ratio=0.03,
-        bf16=has_cuda,
-        use_cpu=not has_cuda,
+        bf16=True,
         gradient_checkpointing=True,
         max_grad_norm=1.0,
         logging_steps=1,
