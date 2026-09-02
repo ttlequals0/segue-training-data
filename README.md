@@ -6,6 +6,11 @@ find advertisement segments in podcast transcripts, assign each one a category
 (sponsor, cross_promo, self_promo, interaction), and answer in the JSON format
 MinusPod's processing pipeline expects.
 
+Two documents cover most questions: **[docs/training.md](docs/training.md)**
+to run the training pipeline yourself, and
+**[docs/glossary.md](docs/glossary.md)** for the terms this project uses in
+training, tooling, and scoring.
+
 ## Status
 
 The first checkpoint is trained and scored: a LoRA fine-tune of Qwen3.5-4B on

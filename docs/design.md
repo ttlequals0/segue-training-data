@@ -7,6 +7,9 @@ detection stage: find ad segments in podcast transcripts, categorize each one
 (sponsor, cross_promo, self_promo, interaction), and answer in the exact JSON
 format the pipeline parses. Weights will be published on Hugging Face.
 
+Terms used throughout are defined in [glossary.md](glossary.md); the
+end-to-end training runbook is [training.md](training.md).
+
 ## Approach
 
 Thin vertical slice first, then widen. Phase 1 proves every link of the chain
