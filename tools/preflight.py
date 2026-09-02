@@ -131,6 +131,17 @@ def optimizer_step_smoke(model_name, revision, attn, tokenizer, rows,
         gradient_checkpointing_kwargs={'use_reentrant': False})
     model.enable_input_require_grads()
     model.config.use_cache = False
+    # HF gates checkpointing on `self.gradient_checkpointing and self.training`,
+    # and from_pretrained returns an eval-mode model, so without train() the
+    # checkpointing above is silently inert.
+    model.train()
+    active = any(getattr(m, 'gradient_checkpointing', False)
+                 for m in model.modules())
+    print(f'  gradient checkpointing active: {active} '
+          f'(training={model.training})', flush=True)
+    if not active:
+        raise RuntimeError('gradient checkpointing did not take effect; '
+                           'the smoke step would not match training')
     longest = max(rows, key=lambda r: len(r['messages'][1]['content']))
     enc = render.encode_example(tokenizer, longest['messages'],
                                 model_name, model_max_length)
