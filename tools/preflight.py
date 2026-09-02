@@ -22,6 +22,15 @@ from common import REPO_ROOT, sha256_file  # noqa: E402
 STAMP = REPO_ROOT / '.local' / 'preflight.json'
 
 
+def parse_memory_fraction(value):
+    """Argparse type: a device-memory cap in (0, 1]."""
+    f = float(value)
+    if not 0.0 < f <= 1.0:
+        raise argparse.ArgumentTypeError(
+            f'memory fraction must be in (0, 1], got {value}')
+    return f
+
+
 def load_rows(path):
     rows = []
     with open(path, encoding='utf-8') as f:
@@ -96,17 +105,43 @@ def check(name, fn, failures):
 
 
 def optimizer_step_smoke(model_name, revision, attn, tokenizer, rows,
-                         model_max_length):
+                         model_max_length, memory_fraction):
     import torch
     from peft import LoraConfig, TaskType, get_peft_model
     from transformers import AutoModelForCausalLM
+    # Unified memory is host RAM: an uncapped allocation reaches the kernel OOM
+    # killer and takes down the box instead of raising a catchable CUDA error.
+    torch.cuda.set_per_process_memory_fraction(memory_fraction)
+
+    def mark(stage):
+        print(f'  {stage}: peak '
+              f'{torch.cuda.max_memory_allocated() / 2 ** 30:.1f} GiB',
+              flush=True)
+
     model = AutoModelForCausalLM.from_pretrained(
         model_name, revision=revision, dtype=torch.bfloat16,
         attn_implementation=attn, device_map='cuda')
     model = get_peft_model(model, LoraConfig(
         task_type=TaskType.CAUSAL_LM, r=16, lora_alpha=32,
         lora_dropout=0.05, bias='none', target_modules='all-linear'))
+    # Mirror the trainer's memory configuration, or the smoke step measures a
+    # setup we never run: without checkpointing a 16k-token window holds every
+    # layer's activations at once.
+    model.gradient_checkpointing_enable(
+        gradient_checkpointing_kwargs={'use_reentrant': False})
     model.enable_input_require_grads()
+    model.config.use_cache = False
+    # HF gates checkpointing on `self.gradient_checkpointing and self.training`,
+    # and from_pretrained returns an eval-mode model, so without train() the
+    # checkpointing above is silently inert.
+    model.train()
+    active = any(getattr(m, 'gradient_checkpointing', False)
+                 for m in model.modules())
+    print(f'  gradient checkpointing active: {active} '
+          f'(training={model.training})', flush=True)
+    if not active:
+        raise RuntimeError('gradient checkpointing did not take effect; '
+                           'the smoke step would not match training')
     longest = max(rows, key=lambda r: len(r['messages'][1]['content']))
     enc = render.encode_example(tokenizer, longest['messages'],
                                 model_name, model_max_length)
@@ -114,11 +149,17 @@ def optimizer_step_smoke(model_name, revision, attn, tokenizer, rows,
     labels = torch.tensor([enc['labels']], device='cuda')
     opt = torch.optim.AdamW((p for p in model.parameters()
                              if p.requires_grad), lr=1e-4)
+    mark('model loaded')
     loss = model(input_ids=ids, labels=labels).loss
+    mark('after forward')
     loss.backward()
+    mark('after backward')
     opt.step()
+    mark('after optimizer step')
     peak_gb = torch.cuda.max_memory_allocated() / 2 ** 30
-    return {'loss': float(loss), 'peak_memory_gb': round(peak_gb, 1)}
+    return {'loss': float(loss.detach()), 'peak_memory_gb': round(peak_gb, 1),
+            'memory_fraction': memory_fraction,
+            'tokens': enc['length']}
 
 
 def main():
@@ -132,6 +173,10 @@ def main():
     ap.add_argument('--grad-accum', type=int, default=8)
     ap.add_argument('--epochs', type=int, default=3)
     ap.add_argument('--device', choices=['cuda', 'cpu'], default='cuda')
+    ap.add_argument('--memory-fraction', type=parse_memory_fraction,
+                    default=0.8,
+                    help='cap on device memory; unified memory is host '
+                         'RAM, so an uncapped run can OOM-kill the box')
     ap.add_argument('--skip-model-step', action='store_true')
     args = ap.parse_args()
 
@@ -177,7 +222,7 @@ def main():
         if not args.skip_model_step:
             check('optimizer step', lambda: optimizer_step_smoke(
                 args.model, args.revision, attn, tokenizer, train_rows,
-                args.max_length), failures)
+                args.max_length, args.memory_fraction), failures)
 
     if failures:
         raise SystemExit(f'preflight FAILED: {failures}')

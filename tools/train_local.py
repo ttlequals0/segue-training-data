@@ -84,6 +84,7 @@ def build_training_args(run_dir, args):
         warmup_ratio=0.03,
         bf16=True,
         gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={'use_reentrant': False},
         max_grad_norm=1.0,
         logging_steps=1,
         eval_strategy='steps',
@@ -117,6 +118,9 @@ def main():
     ap.add_argument('--batch-size', type=int, default=2)
     ap.add_argument('--grad-accum', type=int, default=8)
     ap.add_argument('--max-length', type=int, default=16384)
+    ap.add_argument('--memory-fraction', type=float, default=0.8,
+                    help='cap on device memory; unified memory is host '
+                         'RAM, so an uncapped run can OOM-kill the box')
     ap.add_argument('--seed', type=int, default=13)
     args = ap.parse_args()
 
@@ -144,6 +148,9 @@ def main():
                                      args.max_length)
                for r in load_rows(args.val)]
 
+    # Unified memory is host RAM; an uncapped run reaches the kernel OOM
+    # killer instead of raising a catchable CUDA error.
+    torch.cuda.set_per_process_memory_fraction(args.memory_fraction)
     model = AutoModelForCausalLM.from_pretrained(
         args.model, revision=args.revision, dtype=torch.bfloat16,
         attn_implementation=stamp['attn'])
