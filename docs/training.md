@@ -166,7 +166,13 @@ overriding.
 Evaluation loss against the held-out feeds is logged every 10 steps, the
 adapter lands in `.local/runs/r1/adapter`, and `runs/r1.json` records the full
 run manifest: data and prompt hashes, package versions, driver and GPU,
-repository commits, LoRA module list, and seeds. Commit that manifest.
+repository commits, LoRA module list, and seeds.
+
+Measured on a Spark: 30 optimizer steps in 100 minutes at 199 seconds per
+step, three evaluations of 157 seconds each. Held-out loss fell every epoch,
+0.5632, then 0.5615, then 0.5426, so the final checkpoint was the best one.
+Mean training loss was 0.938, with per-step values ranging from 0.37 to 1.52
+because a batch of 16 windows varies in how many carry ads at all.
 
 ## Evaluate
 
@@ -177,7 +183,19 @@ Greedy decoding over the held-out feeds, scored the way MinusPod's benchmark
 scores: spans on both sides are merged into contiguous breaks (gaps under 15
 seconds) before IoU matching at 0.5. Reports JSON compliance, precision,
 recall, F0.5, false positives on no-ad windows, and boundary error. Results
-land in `.local/eval-r1.json`.
+land in `.local/eval-r1.json`. Budget 30 to 45 minutes: this is generation,
+not scoring a file.
+
+It also prints the band the F0.5 lands in against the roster in MinusPod's
+published benchmark report, fetched live. That is an orientation, not a tier:
+the benchmark assigns tiers by a paired per-episode test against each tier's
+leader, and this is a held-out split rather than the benchmark corpus.
+
+The first Spark run scored 1.00 JSON compliance, F0.5 0.8403, precision 0.8333
+against recall 0.8696, with 3 false positives across 24 no-ad windows and
+boundary error around 8 seconds at each end. Read that as a direction rather
+than a measurement: the split holds 23 truth spans, so one span moves F0.5 by
+roughly two points.
 
 ## Export
 
@@ -190,6 +208,16 @@ merged model must be token-identical on held-out fixtures. A mismatch exits
 non-zero and the export is not publishable. BF16 merge rounding can
 legitimately flip a token; if that happens, investigate the precision rather
 than forcing past the gate.
+
+## Recording a run
+
+    uv run python tools/record_run.py --run-id r1
+
+Collects the run manifest, the eval metrics, and the export manifest into
+`runs/`, strips absolute paths so a public repo does not carry your username
+and directory layout, and writes a results document with the numbers filled
+in. The analysis section is left for you: a script can report what happened,
+not what it means.
 
 ## Troubleshooting
 
