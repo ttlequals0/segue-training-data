@@ -144,8 +144,26 @@ Done so far:
   predates scorer canonicalization and is not directly comparable to scores
   produced after it.
 
+First local run, `r2`, on a DGX Spark: Qwen3.5-9B at LoRA rank 16 across 248
+linear modules, 43,278,336 trainable parameters, 3 epochs over 153 examples,
+batch 1 with 16 accumulation steps, 30 optimizer steps in 100 minutes at 199
+seconds per step, peak memory 43.1 GiB. Held-out loss fell each epoch, 0.5632
+to 0.5615 to 0.5426, so the best checkpoint is the final one. Span-level
+scoring of this checkpoint is pending; token loss is not the release metric.
+
+Bring-up cost four tool defects, all of which the gate or the run caught:
+preflight ran without the gradient checkpointing the trainer uses, and
+enabling it was inert because the model was in eval mode; the evaluation batch
+size defaulted to 8 while training ran at 1, which at a 248,320-token
+vocabulary is a 52 GiB logits allocation; and a checkpoint cadence that
+transformers rejects. Unified memory made the first of those a host-level OOM
+rather than a catchable error, so both preflight and the trainer now cap the
+allocator.
+
 Next up:
 
+- Score `r2` with `eval_generation.py` and export it through the equivalence
+  gate, then record the run in `runs/`.
 - Phase 2: more data and longer training. The failure is entirely recall
   (0.738 precision against 0.592 recall), concentrated in short ads, 0.25 at
   under 30 seconds, and post-roll ads at 0.36. The model merges adjacent

@@ -13,15 +13,28 @@ training, tooling, and scoring.
 
 ## Status
 
-The first checkpoint is trained and scored: a LoRA fine-tune of Qwen3.5-4B on
-156 examples reaching tier B, F0.5 0.686, with 1.00 JSON compliance and both
-no-ad control episodes passed, running at 3.6 seconds per window on a 16 GB
-card at no per-episode cost. Placed against the roster in [MinusPod's
-benchmark report](https://github.com/ttlequals0/MinusPod/blob/main/benchmarks/llm/results/report.md),
-that ties `gemini-3.1-flash-lite` and clears every untuned open-weight entry.
+Training runs locally now. `tools/train_local.py` (Transformers + PEFT, BF16
+LoRA on a single CUDA GPU) replaced the managed backend, gated by a preflight
+that renders every example and runs a real optimizer step before it will let
+a run start. [docs/training.md](docs/training.md) is the end-to-end guide.
 
-Full numbers are in `runs/20260830-162400-results.md`. Phase 2 widens the
-dataset; the plan is in `docs/phase2-data-plan.md`.
+The first local run finished on a DGX Spark: Qwen3.5-9B, LoRA rank 16 across
+248 linear modules, 3 epochs over 153 examples in 100 minutes, peaking at 43.1
+GiB. Held-out loss improved each epoch, 0.5632 to 0.5615 to 0.5426. Span-level
+scoring of that checkpoint is still to come, so treat it as a working pipeline
+rather than a result.
+
+Before it, the dataset was corrected against an audit: one span now means one
+contiguous ad break, spans whose only evidence was audio or whose category the
+prompt forbids were dropped with provenance, and `end_text` is validated
+rather than assumed. MinusPod's benchmark scorer was changed to match, so
+older scores are not comparable to new ones.
+
+The earlier managed-backend checkpoint (Qwen3.5-4B, tier B, F0.5 0.686) is
+recorded in `runs/20260830-162400-results.md`. That number predates the
+per-break scoring change and should be re-measured before it is compared with
+anything. Phase 2 widens the dataset; the plan is in
+`docs/phase2-data-plan.md`.
 
 ## What is in here
 
@@ -124,21 +137,43 @@ uv run python tools/inspect_renderer.py
 `docs/phase1-runbook.md` has the vLLM serving config, the flags a 16 GB card
 needs, and the failures worth recognizing on the way.
 
-## Evaluation
+Two layers, scored the same way.
 
-Checkpoints are scored by MinusPod's LLM benchmark harness against a
-human-verified corpus. Run it from a copy, never inside the MinusPod
-checkout: the harness writes to a results directory that is tracked in git
-and holds the published multi-model history.
+**After every training run**, `tools/eval_generation.py` decodes the
+feed-held-out validation set with the adapter loaded and scores span-level
+accuracy directly. No serving stack required:
+
+```sh
+uv run python tools/eval_generation.py --run-id r2 --revision $REV \
+  --adapter .local/runs/r2/adapter
+```
+
+It reports JSON compliance, precision, recall, F0.5, false positives on
+windows that contain no ads, and boundary error, into `.local/eval-<run>.json`.
+Held-out loss during training is a progress signal, not this: a model can
+improve its token loss while getting no better at placing spans.
+
+**Before a release**, MinusPod's LLM benchmark harness scores the checkpoint
+against the human-verified corpus, which is what produces a row comparable to
+the published multi-model table. That path needs the model served over vLLM.
+Run the harness from a copy, never inside the MinusPod checkout, because it
+writes to a results directory that is tracked in git and holds the published
+history:
 
 ```sh
 tools/setup_isolated_benchmark.sh <minuspod> ~/segue-benchmark
 cp benchmark.local.toml.example ~/segue-benchmark/benchmarks/llm/benchmark.toml
 ```
 
-Set the vLLM base URL in that config, then follow the runbook. The corpus
-episodes are listed in `data/holdout.txt`, excluded from training by the
-extractor and checked again by the validator.
+Set the vLLM base URL in that config, then follow `docs/phase1-runbook.md`.
+The corpus episodes are listed in `data/holdout.txt`, excluded from training
+by the extractor and checked again by the validator.
+
+Both layers apply the same span policy: predictions and ground truth are
+merged into contiguous breaks (gaps under 15 seconds) before matching at
+IoU >= 0.5, and both rank by F0.5 rather than F1, because cutting real content
+is a worse failure than leaving an ad in. See
+[docs/glossary.md](docs/glossary.md) for the terms.
 
 ## Contributing data
 
