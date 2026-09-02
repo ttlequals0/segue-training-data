@@ -69,3 +69,26 @@ def test_logit_max_diff_detects_difference():
     ids = [torch.randint(0, 128, (1, 8))]
     diff = compute_logit_max_diff(a, other, ids)
     assert diff > 0.1
+
+
+def test_per_fixture_diffs_reports_one_entry_per_fixture():
+    from export_local import per_fixture_diffs
+    a, b = tiny_pair()
+    ids = [torch.randint(0, 128, (1, 8)), torch.randint(0, 128, (1, 12))]
+    rows = per_fixture_diffs(a, b, ids)
+    assert len(rows) == 2
+    assert rows[0]["tokens"] == 8 and rows[1]["tokens"] == 12
+    # Same model against itself must be exactly zero, or the diagnostic lies.
+    assert all(r["logit_max_diff"] == 0.0 for r in per_fixture_diffs(a, a, ids))
+
+
+def test_per_fixture_diffs_detects_divergence():
+    from export_local import per_fixture_diffs
+    a, _ = tiny_pair()
+    from transformers import LlamaConfig, LlamaForCausalLM
+    torch.manual_seed(99)
+    other = LlamaForCausalLM(LlamaConfig(
+        hidden_size=32, intermediate_size=64, num_hidden_layers=2,
+        num_attention_heads=4, num_key_value_heads=4, vocab_size=128)).eval()
+    rows = per_fixture_diffs(a, other, [torch.randint(0, 128, (1, 8))])
+    assert rows[0]["logit_max_diff"] > 0.0

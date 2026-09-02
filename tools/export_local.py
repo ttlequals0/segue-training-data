@@ -39,6 +39,27 @@ def generations_match(model_a, model_b, input_ids, max_new_tokens=128):
     return outs[0] == outs[1]
 
 
+def per_fixture_diffs(model_a, model_b, ids_list):
+    """Logit divergence per fixture, with its length.
+
+    A single max hides whether divergence tracks sequence length, which is
+    the question when most layers carry recurrent state: a small weight
+    perturbation there compounds along the sequence.
+    """
+    import torch
+    rows = []
+    for ids in ids_list:
+        with torch.no_grad():
+            la = model_a(ids.to(model_a.device)).logits.float().cpu()
+            lb = model_b(ids.to(model_b.device)).logits.float().cpu()
+        diff = (la - lb).abs()
+        rows.append({'tokens': int(ids.shape[1]),
+                     'logit_max_diff': float(diff.max()),
+                     'logit_mean_diff': float(diff.mean()),
+                     'worst_position': int(diff.max(dim=-1).values.argmax())})
+    return rows
+
+
 def compute_logit_max_diff(model_a, model_b, ids_list):
     import torch
     max_diff = 0.0
@@ -59,6 +80,11 @@ def main():
     ap.add_argument('--run-id', required=True)
     ap.add_argument('--fixtures', default=str(REPO_ROOT / '.local' / 'val.jsonl'))
     ap.add_argument('--n-fixtures', type=int, default=8)
+    ap.add_argument('--merge-dtype', choices=['bfloat16', 'float32'],
+                    default='bfloat16',
+                    help='dtype to merge in; float32 loads the base in fp32 '
+                         'so the merge arithmetic does not round, then casts '
+                         'to bf16 on save')
     ap.add_argument('--out', default=None)
     args = ap.parse_args()
     out = Path(args.out or REPO_ROOT / '.local' / 'export' / args.run_id)
@@ -69,8 +95,9 @@ def main():
 
     tokenizer = AutoTokenizer.from_pretrained(args.model,
                                               revision=args.revision)
+    merge_dtype = getattr(torch, args.merge_dtype)
     base = AutoModelForCausalLM.from_pretrained(
-        args.model, revision=args.revision, dtype=torch.bfloat16,
+        args.model, revision=args.revision, dtype=merge_dtype,
         device_map='auto')
     adapter_model = PeftModel.from_pretrained(base, args.adapter).eval()
 
@@ -93,6 +120,8 @@ def main():
         raise SystemExit(f'no fixtures loaded from {args.fixtures}')
 
     merged = adapter_model.merge_and_unload()
+    if merge_dtype is not torch.bfloat16:
+        merged = merged.to(torch.bfloat16)
     merged_out = out / 'merged'
     merged.save_pretrained(str(merged_out), safe_serialization=True)
     tokenizer.save_pretrained(str(merged_out))
@@ -109,13 +138,22 @@ def main():
 
     results = [generations_match(adapter2, reloaded, ids)
                for ids in fixture_ids]
-    logit_max_diff = compute_logit_max_diff(adapter2, reloaded, fixture_ids)
+    diffs = per_fixture_diffs(adapter2, reloaded, fixture_ids)
+    logit_max_diff = max(d['logit_max_diff'] for d in diffs)
+    for match, d in zip(results, diffs):
+        print(f"  fixture {d['tokens']:>5} tokens: "
+              f"{'match' if match else 'DIVERGED'}, "
+              f"max {d['logit_max_diff']:.3g}, mean "
+              f"{d['logit_mean_diff']:.3g}, worst at position "
+              f"{d['worst_position']}")
 
     export_manifest = manifest_mod.build_manifest(
         vars(args), {},
         {'adapter_sha256': checksum_dir(adapter_out),
          'merged_sha256': checksum_dir(merged_out),
          'fixture_matches': results,
+         'per_fixture_diffs': diffs,
+         'merge_dtype': args.merge_dtype,
          'logit_max_diff': logit_max_diff})
     (out / 'export_manifest.json').write_text(
         json.dumps(export_manifest, indent=2) + '\n')
