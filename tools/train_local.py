@@ -84,6 +84,7 @@ def build_training_args(run_dir, args):
         warmup_ratio=0.03,
         bf16=True,
         gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={'use_reentrant': False},
         max_grad_norm=1.0,
         logging_steps=1,
         eval_strategy='steps',

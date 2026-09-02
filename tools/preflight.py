@@ -106,7 +106,13 @@ def optimizer_step_smoke(model_name, revision, attn, tokenizer, rows,
     model = get_peft_model(model, LoraConfig(
         task_type=TaskType.CAUSAL_LM, r=16, lora_alpha=32,
         lora_dropout=0.05, bias='none', target_modules='all-linear'))
+    # Mirror the trainer's memory configuration, or the smoke step measures a
+    # setup we never run: without checkpointing a 16k-token window holds every
+    # layer's activations at once.
+    model.gradient_checkpointing_enable(
+        gradient_checkpointing_kwargs={'use_reentrant': False})
     model.enable_input_require_grads()
+    model.config.use_cache = False
     longest = max(rows, key=lambda r: len(r['messages'][1]['content']))
     enc = render.encode_example(tokenizer, longest['messages'],
                                 model_name, model_max_length)
