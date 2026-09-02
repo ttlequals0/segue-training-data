@@ -74,6 +74,24 @@ that caused the merging, and 124 short ads against 10.
    transcript stretches with correct labels by construction. Keeps synthetic
    examples under about a quarter of the mix and out of eval entirely.
 
+## Span lengths inherited from the old merge rule
+
+Measured on the current 71 spans: median 110.6s, mean 132.0s, and 20 of them
+over 180s, the longest 437.1s. The detection prompt says a break typically
+runs 60 to 120 seconds, so that tail is suspect.
+
+MinusPod's same-sponsor merge used to join two detections on sponsor identity
+alone, which on shows where a host name-drops a sponsor repeatedly swallowed
+the conversation between two mentions. The fix gates the merge on what the gap
+contains. These labels predate it, so an unknown share of the long tail is
+show content inside an ad span, which teaches the model to over-extend and
+plausibly contributes to the boundary error measured on the first run.
+
+Two actions: audit the spans over 180 seconds against their transcripts, and
+re-extract once the corrected merge has been running in production long
+enough to have produced markers under it. Re-extraction is the cheaper fix,
+since it corrects the source rather than the copy.
+
 ## Coverage targets
 
 | Bucket | Phase 1 | Target | Source |
