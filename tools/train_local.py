@@ -72,8 +72,20 @@ def load_rows(path):
         return [json.loads(line) for line in f if line.strip()]
 
 
+def validate_cadence(eval_steps, save_steps):
+    """load_best_model_at_end requires save_steps to be a multiple of eval."""
+    if eval_steps < 1 or save_steps < 1:
+        raise ValueError('--eval-steps and --save-steps must be positive')
+    if save_steps % eval_steps:
+        raise ValueError(
+            f'--save-steps ({save_steps}) must be a multiple of --eval-steps '
+            f'({eval_steps}); the best-checkpoint selection needs an eval at '
+            f'every save')
+
+
 def build_training_args(run_dir, args):
     from transformers import TrainingArguments
+    validate_cadence(args.eval_steps, args.save_steps)
     return TrainingArguments(
         output_dir=str(run_dir),
         num_train_epochs=args.epochs,
@@ -123,9 +135,10 @@ def main():
     ap.add_argument('--grad-accum', type=int, default=8)
     ap.add_argument('--max-length', type=int, default=16384)
     ap.add_argument('--eval-steps', type=int, default=10)
-    ap.add_argument('--save-steps', type=int, default=5,
-                    help='checkpoint cadence; a short run with sparse '
-                         'saves can lose an hour to one crash')
+    ap.add_argument('--save-steps', type=int, default=10,
+                    help='checkpoint cadence, must be a multiple of '
+                         '--eval-steps; sparse saves cost a whole run when '
+                         'the hardware drops out mid-training')
     ap.add_argument('--memory-fraction', type=float, default=0.8,
                     help='cap on device memory; unified memory is host '
                          'RAM, so an uncapped run can OOM-kill the box')
