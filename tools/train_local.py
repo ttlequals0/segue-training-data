@@ -8,6 +8,7 @@ Usage:
 """
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -83,9 +84,20 @@ def validate_cadence(eval_steps, save_steps):
             f'every save')
 
 
-def build_training_args(run_dir, args):
+def total_optimizer_steps(n_train, batch_size, grad_accum, epochs):
+    return max(1, math.ceil(n_train / (batch_size * grad_accum))) * epochs
+
+
+def warmup_steps_for(total_steps, ratio=0.03):
+    """At least one warmup step: a short run rounds 3 percent down to zero."""
+    return max(1, round(total_steps * ratio))
+
+
+def build_training_args(run_dir, args, n_train):
     from transformers import TrainingArguments
     validate_cadence(args.eval_steps, args.save_steps)
+    total = total_optimizer_steps(n_train, args.batch_size, args.grad_accum,
+                                  args.epochs)
     return TrainingArguments(
         output_dir=str(run_dir),
         num_train_epochs=args.epochs,
@@ -97,7 +109,7 @@ def build_training_args(run_dir, args):
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.lr,
         lr_scheduler_type='linear',
-        warmup_ratio=0.03,
+        warmup_steps=warmup_steps_for(total),
         bf16=True,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={'use_reentrant': False},
@@ -200,7 +212,7 @@ def main():
     manifest_path = REPO_ROOT / 'runs' / f'{args.run_id}.json'
     manifest_path.write_text(json.dumps(run_manifest, indent=2) + '\n')
 
-    targs = build_training_args(run_dir, args)
+    targs = build_training_args(run_dir, args, len(train_enc))
     trainer = Trainer(model=model, args=targs, train_dataset=train_enc,
                       eval_dataset=val_enc,
                       data_collator=make_collator(
