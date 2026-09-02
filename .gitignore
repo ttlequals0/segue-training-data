@@ -7,3 +7,4 @@ train.jsonl
 val.jsonl
 data/candidates/
 .env
+.superpowers/

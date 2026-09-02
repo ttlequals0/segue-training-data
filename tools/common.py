@@ -39,6 +39,14 @@ def sha256_text(text: str) -> str:
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with Path(path).open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return "sha256:" + h.hexdigest()
+
+
 def store_prompt(text: str) -> str:
     """Write a prompt to prompts/<hash>.txt if new; return its hash ref."""
     ref = sha256_text(text)

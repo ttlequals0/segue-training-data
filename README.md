@@ -28,7 +28,7 @@ dataset; the plan is in `docs/phase2-data-plan.md`.
 | `schema/example.schema.json` | JSON Schema for a training example |
 | `tools/` | Extraction, validation, dataset build, training, export, and evaluation scripts |
 | `runs/` | Config snapshot and scored results for each training run |
-| `docs/` | Design, phase 1 runbook, phase 2 data plan |
+| `docs/` | Design, phase 1 runbook, phase 2 data plan, DGX Spark setup |
 | `benchmark.local.toml.example` | Benchmark harness config for scoring a locally served checkpoint |
 
 Each example pairs a fully rendered detection prompt (the same prompt MinusPod
@@ -59,18 +59,45 @@ uv run python tools/extract.py --db .local/minuspod.db --limit 25
 # Check every example: schema, holdout, prompt store, window bounds
 uv run python tools/validate.py
 
+# One-shot migration to the per-break output contract (drops outro and
+# audio-only-evidence spans, merges sub-15s gaps, fixes end_text)
+uv run python tools/fix_labels.py --dry-run
+
 # Build chat-format train/val JSONL; val feeds are held out whole.
 # Name two or three feeds, not the whole roster: every feed listed goes to
 # val, so passing all of them leaves an empty training file.
 uv run python tools/build_dataset.py --val-feeds feed-a,feed-b,feed-c
 ```
 
-Train and export (needs `TINKER_API_KEY` and `uv sync --extra train`):
+Train and export on Tinker, the legacy backend (needs `TINKER_API_KEY` and
+`uv sync --extra train`):
 
 ```sh
 uv run python tools/train_tinker.py --list-models
 uv run python tools/train_tinker.py --train .local/train.jsonl
 uv run python tools/export_model.py --tinker-path "tinker://<run-id>/sampler_weights/final"
+```
+
+## Local training (DGX Spark)
+
+`tools/train_local.py` is the default training backend: Transformers + PEFT,
+BF16 LoRA, run on a DGX Spark. See `docs/spark-setup.md` for environment
+setup, then run:
+
+```sh
+# Gate: refuses to train until data, renderer, and device check out
+uv run python tools/preflight.py --revision <pinned-sha>
+
+# LoRA-train against the preflight stamp; writes runs/<run-id>.json
+uv run python tools/train_local.py --run-id r1 --revision <pinned-sha>
+
+# Score JSON compliance, span P/R/F0.5, and boundary MAE on held-out val
+uv run python tools/eval_generation.py --run-id r1 --revision <pinned-sha> \
+    --adapter .local/runs/r1/adapter
+
+# Export the adapter and a merged BF16 model behind an equivalence gate
+uv run python tools/export_local.py --run-id r1 --revision <pinned-sha> \
+    --adapter .local/runs/r1/adapter
 ```
 
 Serve and check before spending time on a full benchmark run:

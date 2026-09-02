@@ -13,6 +13,33 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import (  # noqa: E402
     SCHEMA_FILE, iter_examples, load_excluded_feeds, load_holdout, load_prompt,
 )
+from spans import GAP_SECONDS  # noqa: E402
+
+
+def content_errors(ex):
+    """Content checks beyond the JSON schema. Empty list means clean."""
+    errs = []
+    w = ex.get('prompt', {})
+    prev_end = None
+    for i, ad in enumerate(ex.get('completion', [])):
+        if not (w.get('window_start', 0) <= ad['start'] < ad['end']
+                <= w.get('window_end', float('inf')) + 0.01):
+            errs.append(f"ad {ad['start']}-{ad['end']} outside window "
+                        f"{w.get('window_start')}-{w.get('window_end')}")
+        n_words = len(ad['end_text'].split())
+        if not 1 <= n_words <= 5:
+            errs.append(f"ad {i}: end_text must be 1-5 words, got {n_words}: "
+                        f"{ad['end_text']!r}")
+        if not ad['reason'].strip():
+            errs.append(f"ad {i}: blank reason")
+        if prev_end is not None:
+            if ad['start'] < prev_end:
+                errs.append(f"ad {i}: overlaps previous span")
+            elif ad['start'] - prev_end < GAP_SECONDS:
+                errs.append(f"ad {i}: gap under {GAP_SECONDS}s from previous "
+                            f"span; per-break policy requires them merged")
+        prev_end = ad['end']
+    return errs
 
 
 def main():
@@ -57,13 +84,9 @@ def main():
                 errors += 1
             checked_prompts.add(ref)
 
-        w = ex.get('prompt', {})
-        for ad in ex.get('completion', []):
-            if not (w.get('window_start', 0) <= ad['start'] < ad['end']
-                    <= w.get('window_end', float('inf')) + 0.01):
-                print(f"{where}: ad {ad['start']}-{ad['end']} outside window "
-                      f"{w.get('window_start')}-{w.get('window_end')}")
-                errors += 1
+        for msg in content_errors(ex):
+            print(f"{where}: {msg}")
+            errors += 1
         if not ex.get('completion'):
             empty += 1
 
