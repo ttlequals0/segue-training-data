@@ -119,3 +119,13 @@ def test_parse_tier_floors_rejects_a_report_without_the_table():
     from eval_generation import parse_tier_floors
     with pytest.raises(ValueError, match="Best Accuracy"):
         parse_tier_floors("# Benchmark\n\nnothing here\n")
+
+
+def test_select_source_requires_exactly_one():
+    from eval_generation import select_source
+    assert select_source(adapter="a", merged=None, base=False) == "adapter"
+    assert select_source(adapter=None, merged="m", base=False) == "merged"
+    assert select_source(adapter=None, merged=None, base=True) == "base"
+    for bad in ((None, None, False), ("a", "m", False), ("a", None, True)):
+        with pytest.raises(SystemExit, match="exactly one"):
+            select_source(*bad)
