@@ -29,8 +29,10 @@ def generations_match(model_a, model_b, input_ids, max_new_tokens=128):
     import torch
     outs = []
     for model in (model_a, model_b):
+        ids = input_ids.to(model.device)
         with torch.no_grad():
-            out = model.generate(input_ids=input_ids.to(model.device),
+            out = model.generate(input_ids=ids,
+                                 attention_mask=torch.ones_like(ids),
                                  do_sample=False,
                                  max_new_tokens=max_new_tokens)
         outs.append(out[0].tolist())

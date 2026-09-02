@@ -1,0 +1,16 @@
+{
+  "source": "MinusPod benchmarks/llm/results/report.md, Best Accuracy table",
+  "note": "Offline fallback only. tools/eval_generation.py fetches the live report; this is used when that fails. The benchmark assigns tiers by a paired per-episode test against each tier leader, so these floors indicate where a score lands, never a tier.",
+  "fetched_at": "2026-09-02T22:35:19Z",
+  "floors": {
+    "A": 0.776,
+    "B": 0.73,
+    "C": 0.666,
+    "D": 0.546,
+    "E": 0.47,
+    "F": 0.349,
+    "G": 0.252,
+    "H": 0.19,
+    "I": 0.0
+  }
+}

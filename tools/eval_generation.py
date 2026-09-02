@@ -8,7 +8,10 @@ Usage:
         --adapter .local/runs/r1/adapter
 """
 import argparse
+import datetime
 import json
+import re
+import urllib.request
 import statistics
 import sys
 from pathlib import Path
@@ -34,6 +37,73 @@ def parse_prediction(text):
                    for k in ('start', 'end')):
             return None
     return data
+
+
+BANDS_URL = ('https://raw.githubusercontent.com/ttlequals0/MinusPod/main/'
+             'benchmarks/llm/results/report.md')
+BANDS_CACHE = REPO_ROOT / '.local' / 'tier_bands.json'
+BANDS_SNAPSHOT = REPO_ROOT / 'data' / 'tier_bands.json'
+_ROW = re.compile(r'^\|\s*([A-Z]+)\s*\|\s*`([^`]+)`\s*\|\s*([0-9.]+)\s*\|')
+
+
+def parse_tier_floors(report_text):
+    """Lowest F0.5 per tier in the report's Best Accuracy table.
+
+    Scoped to that table on purpose: the free-tier table reuses the same
+    letters against its own leader, so an A there can sit far below an A here.
+    """
+    lines = report_text.splitlines()
+    start = next((i for i, ln in enumerate(lines)
+                  if ln.startswith('###') and 'Best Accuracy' in ln), None)
+    if start is None:
+        raise ValueError('no Best Accuracy section in the report')
+    floors = {}
+    for line in lines[start + 1:]:
+        if line.startswith('###'):
+            break
+        m = _ROW.match(line)
+        if m:
+            tier, f05 = m.group(1), float(m.group(3))
+            floors[tier] = min(floors.get(tier, f05), f05)
+    if not floors:
+        raise ValueError('Best Accuracy section had no scored rows')
+    return floors
+
+
+def load_tier_floors(url=BANDS_URL, timeout=10):
+    """Live floors from the published report, else cache, else the snapshot.
+
+    Returns (floors, source). Never raises: a band is a nicety, and losing
+    network access must not cost you an eval result.
+    """
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            floors = parse_tier_floors(resp.read().decode('utf-8'))
+        BANDS_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        BANDS_CACHE.write_text(json.dumps(
+            {'fetched_at': datetime.datetime.now(datetime.timezone.utc)
+             .strftime('%Y-%m-%dT%H:%M:%SZ'), 'floors': floors}, indent=2))
+        return floors, 'published report'
+    except Exception as e:
+        print(f'tier bands: live fetch failed ({e}); falling back', flush=True)
+    for path, label in ((BANDS_CACHE, 'cached report'),
+                        (BANDS_SNAPSHOT, 'bundled snapshot')):
+        if path.exists():
+            data = json.loads(path.read_text())
+            return data['floors'], f"{label} ({data.get('fetched_at') or data.get('minuspod_version')})"
+    return None, None
+
+
+def tier_band(f05, floors):
+    """Which published tier band this F0.5 lands in.
+
+    The benchmark assigns tiers by a paired test against each tier's leader,
+    so this is where a score falls against the published roster, not a tier.
+    """
+    for letter, floor in sorted(floors.items(), key=lambda kv: -kv[1]):
+        if f05 >= floor:
+            return letter
+    return sorted(floors, key=lambda k: floors[k])[0]
 
 
 def _ranges(ads):
@@ -92,6 +162,10 @@ def generate_all(model, tokenizer, rows, model_name, max_new_tokens=1024):
         prefix, _ = render.render_texts(tokenizer, row['messages'], model_name)
         ids = tokenizer(prefix, add_special_tokens=False,
                         return_tensors='pt').to(model.device)
+        # Pass the mask explicitly: without it transformers warns on every
+        # call and falls back to inferring one, which it cannot do when pad
+        # and eos are the same token.
+        ids.setdefault('attention_mask', torch.ones_like(ids['input_ids']))
         with torch.no_grad():
             out = model.generate(**ids, do_sample=False,
                                  max_new_tokens=max_new_tokens,
@@ -137,11 +211,22 @@ def main():
 
     predictions = generate_all(model, tokenizer, rows, args.model)
     result = score(rows, predictions)
+    floors, source = load_tier_floors()
+    if floors:
+        result['tier_band'] = tier_band(result['f05'], floors)
+        result['tier_band_source'] = source
     out = REPO_ROOT / '.local' / f'eval-{args.run_id}.json'
     out.write_text(json.dumps(
         {'args': vars(args),
          'metrics': result}, indent=2) + '\n')
     print(json.dumps(result, indent=2))
+    if 'tier_band' in result:
+        print(f"\nBand {result['tier_band']} against the roster in the "
+              f"{result['tier_band_source']}. This is a held-out split, not "
+              f"the benchmark corpus, and the benchmark assigns tiers by a "
+              f"paired test against each tier's leader, so this shows where "
+              f"the score lands rather than earning a tier. Run the "
+              f"benchmark harness for a comparable row.")
     print(f'written to {out}')
 
 
