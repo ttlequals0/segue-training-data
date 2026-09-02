@@ -69,6 +69,23 @@ def _args(**over):
     return type('Args', (), base)()
 
 
+def test_total_optimizer_steps_matches_preflight():
+    from preflight import expected_steps
+    from train_local import total_optimizer_steps
+    # The trainer and the gate must agree, or the stamp blesses a plan the
+    # run does not follow.
+    for n, b, ga, ep in ((153, 1, 16, 3), (153, 2, 8, 3), (16, 2, 8, 1)):
+        assert total_optimizer_steps(n, b, ga, ep) == expected_steps(n, b, ga, ep)
+
+
+def test_warmup_steps_never_zero():
+    from train_local import warmup_steps_for
+    # 3 percent of 30 rounds to 1, not 0; a zero-step warmup is no warmup.
+    assert warmup_steps_for(30) == 1
+    assert warmup_steps_for(1) == 1
+    assert warmup_steps_for(1000) == 30
+
+
 def test_validate_cadence_rejects_non_multiple():
     from train_local import validate_cadence
     # transformers rejects this only when TrainingArguments is constructed,
@@ -87,7 +104,7 @@ def test_validate_cadence_accepts_multiples():
 
 def test_build_training_args_eval_batch_matches_train(tmp_path):
     try:
-        targs = build_training_args(tmp_path, _args(batch_size=1))
+        targs = build_training_args(tmp_path, _args(batch_size=1), 153)
     except ValueError as e:
         pytest.skip(f"bf16 unsupported on this box: {e}")
     # Upstream defaults eval to 8; at a 248k vocabulary that is a 52 GiB
@@ -101,11 +118,11 @@ def test_build_training_args_eval_batch_matches_train(tmp_path):
 def test_build_training_args_fields(tmp_path):
     args = _args()
     try:
-        targs = build_training_args(tmp_path, args)
+        targs = build_training_args(tmp_path, args, 153)
     except ValueError as e:
         pytest.skip(f"bf16 unsupported on this box: {e}")
     assert str(targs.eval_strategy) in ("steps", "IntervalStrategy.STEPS")
     assert targs.learning_rate == 1e-4
-    assert targs.warmup_ratio == 0.03
+    assert targs.warmup_steps == 1
     assert targs.bf16 is True
     assert targs.metric_for_best_model == "eval_loss"
