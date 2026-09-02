@@ -157,7 +157,7 @@ def optimizer_step_smoke(model_name, revision, attn, tokenizer, rows,
     opt.step()
     mark('after optimizer step')
     peak_gb = torch.cuda.max_memory_allocated() / 2 ** 30
-    return {'loss': float(loss), 'peak_memory_gb': round(peak_gb, 1),
+    return {'loss': float(loss.detach()), 'peak_memory_gb': round(peak_gb, 1),
             'memory_fraction': memory_fraction,
             'tokens': enc['length']}
 
