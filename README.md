@@ -28,7 +28,7 @@ dataset; the plan is in `docs/phase2-data-plan.md`.
 | `schema/example.schema.json` | JSON Schema for a training example |
 | `tools/` | Extraction, validation, dataset build, training, export, and evaluation scripts |
 | `runs/` | Config snapshot and scored results for each training run |
-| `docs/` | Design, phase 1 runbook, phase 2 data plan, DGX Spark setup |
+| `docs/` | Training guide, glossary, design, phase 1 runbook, phase 2 data plan |
 | `benchmark.local.toml.example` | Benchmark harness config for scoring a locally served checkpoint |
 
 Each example pairs a fully rendered detection prompt (the same prompt MinusPod
@@ -78,25 +78,31 @@ uv run python tools/train_tinker.py --train .local/train.jsonl
 uv run python tools/export_model.py --tinker-path "tinker://<run-id>/sampler_weights/final"
 ```
 
-## Local training (DGX Spark)
+## Local training
 
 `tools/train_local.py` is the default training backend: Transformers + PEFT,
-BF16 LoRA, run on a DGX Spark. See `docs/spark-setup.md` for environment
-setup, then run:
+BF16 LoRA on a single CUDA GPU. Training needs about 48 GB of device memory;
+the measured peak is 43.1 GiB on the longest window in this dataset.
+
+**[docs/training.md](docs/training.md) is the complete guide**: hardware,
+setup, the pinned base revision, every command with its expected output, and
+a troubleshooting section covering the failures hit during bring-up. Read that
+rather than assembling the steps from here. Unfamiliar terms are defined in
+[docs/glossary.md](docs/glossary.md). In short:
 
 ```sh
 # Gate: refuses to train until data, renderer, and device check out
-uv run python tools/preflight.py --revision <pinned-sha>
+uv run python tools/preflight.py --revision $REV
 
 # LoRA-train against the preflight stamp; writes runs/<run-id>.json
-uv run python tools/train_local.py --run-id r1 --revision <pinned-sha>
+uv run python tools/train_local.py --run-id r1 --revision $REV
 
 # Score JSON compliance, span P/R/F0.5, and boundary MAE on held-out val
-uv run python tools/eval_generation.py --run-id r1 --revision <pinned-sha> \
+uv run python tools/eval_generation.py --run-id r1 --revision $REV \
     --adapter .local/runs/r1/adapter
 
 # Export the adapter and a merged BF16 model behind an equivalence gate
-uv run python tools/export_local.py --run-id r1 --revision <pinned-sha> \
+uv run python tools/export_local.py --run-id r1 --revision $REV \
     --adapter .local/runs/r1/adapter
 ```
 
