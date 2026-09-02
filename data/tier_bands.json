@@ -1,0 +1,7 @@
+{
+  "source": "MinusPod benchmarks/llm/results/report.md",
+  "minuspod_version": "2.94.0",
+  "scoring": "per-break canonicalized, IoU >= 0.5, F0.5",
+  "note": "Floors are the lowest F0.5 in each tier of the published roster. The benchmark assigns tiers by a paired per-episode significance test against each tier's leader, not by these thresholds, so a band here is an indication of where a score lands, never a substitute for a benchmark run.",
+  "floors": {"A": 0.760, "B": 0.730, "C": 0.666, "D": 0.546, "E": 0.470, "F": 0.349, "G": 0.0}
+}

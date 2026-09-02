@@ -36,6 +36,21 @@ def parse_prediction(text):
     return data
 
 
+TIER_BANDS = REPO_ROOT / 'data' / 'tier_bands.json'
+
+
+def tier_band(f05, floors):
+    """Which published tier band this F0.5 lands in.
+
+    The benchmark assigns tiers by a paired test against each tier's leader,
+    so this is where a score falls against the published roster, not a tier.
+    """
+    for letter, floor in sorted(floors.items(), key=lambda kv: -kv[1]):
+        if f05 >= floor:
+            return letter
+    return sorted(floors, key=lambda k: floors[k])[0]
+
+
 def _ranges(ads):
     normed = [{'start': a['start'], 'end': a['end'],
                'confidence': float(a.get('confidence', 0.0))} for a in ads]
@@ -92,6 +107,10 @@ def generate_all(model, tokenizer, rows, model_name, max_new_tokens=1024):
         prefix, _ = render.render_texts(tokenizer, row['messages'], model_name)
         ids = tokenizer(prefix, add_special_tokens=False,
                         return_tensors='pt').to(model.device)
+        # Pass the mask explicitly: without it transformers warns on every
+        # call and falls back to inferring one, which it cannot do when pad
+        # and eos are the same token.
+        ids.setdefault('attention_mask', torch.ones_like(ids['input_ids']))
         with torch.no_grad():
             out = model.generate(**ids, do_sample=False,
                                  max_new_tokens=max_new_tokens,
@@ -137,11 +156,21 @@ def main():
 
     predictions = generate_all(model, tokenizer, rows, args.model)
     result = score(rows, predictions)
+    if TIER_BANDS.exists():
+        bands = json.loads(TIER_BANDS.read_text())
+        result['tier_band'] = tier_band(result['f05'], bands['floors'])
+        result['tier_band_source'] = bands['minuspod_version']
     out = REPO_ROOT / '.local' / f'eval-{args.run_id}.json'
     out.write_text(json.dumps(
         {'args': vars(args),
          'metrics': result}, indent=2) + '\n')
     print(json.dumps(result, indent=2))
+    if 'tier_band' in result:
+        print(f"\nBand {result['tier_band']} against the "
+              f"{result['tier_band_source']} published roster. This is a "
+              f"held-out split, not the benchmark corpus, so it indicates "
+              f"where the score lands rather than earning a tier. Run the "
+              f"benchmark harness for a comparable row.")
     print(f'written to {out}')
 
 

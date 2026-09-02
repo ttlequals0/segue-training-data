@@ -63,3 +63,22 @@ def test_score_unparseable_noad_window():
     assert s["noad_windows"] == 1
     assert s["noad_fp"] == 0 and s["fp"] == 0
     assert s["fn"] == 0
+
+
+def test_tier_band_matches_published_floors():
+    from eval_generation import tier_band
+    floors = {"A": 0.760, "B": 0.730, "C": 0.666, "D": 0.546, "E": 0.470,
+              "F": 0.349, "G": 0.0}
+    assert tier_band(0.861, floors) == "A"
+    assert tier_band(0.760, floors) == "A"
+    assert tier_band(0.759, floors) == "B"
+    assert tier_band(0.686, floors) == "C"
+    assert tier_band(0.0, floors) == "G"
+
+
+def test_tier_band_unordered_floors():
+    from eval_generation import tier_band
+    # Dict order must not decide the answer.
+    floors = {"C": 0.666, "A": 0.760, "G": 0.0, "B": 0.730}
+    assert tier_band(0.9, floors) == "A"
+    assert tier_band(0.7, floors) == "C"
