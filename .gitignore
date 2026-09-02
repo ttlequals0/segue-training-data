@@ -8,3 +8,5 @@ val.jsonl
 data/candidates/
 .env
 .superpowers/
+superpowers/
+docs/superpowers/
