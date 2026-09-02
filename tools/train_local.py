@@ -78,6 +78,10 @@ def build_training_args(run_dir, args):
         output_dir=str(run_dir),
         num_train_epochs=args.epochs,
         per_device_train_batch_size=args.batch_size,
+        # Eval defaults to 8, which at this vocabulary is fatal: the loss
+        # upcasts logits to fp32, so 8 windows costs about 52 GiB of logits
+        # alone. Eval is forward-only, so match the training batch.
+        per_device_eval_batch_size=args.batch_size,
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.lr,
         lr_scheduler_type='linear',
@@ -88,8 +92,8 @@ def build_training_args(run_dir, args):
         max_grad_norm=1.0,
         logging_steps=1,
         eval_strategy='steps',
-        eval_steps=10,
-        save_steps=20,
+        eval_steps=args.eval_steps,
+        save_steps=args.save_steps,
         save_total_limit=3,
         load_best_model_at_end=True,
         metric_for_best_model='eval_loss',
@@ -118,6 +122,10 @@ def main():
     ap.add_argument('--batch-size', type=int, default=2)
     ap.add_argument('--grad-accum', type=int, default=8)
     ap.add_argument('--max-length', type=int, default=16384)
+    ap.add_argument('--eval-steps', type=int, default=10)
+    ap.add_argument('--save-steps', type=int, default=5,
+                    help='checkpoint cadence; a short run with sparse '
+                         'saves can lose an hour to one crash')
     ap.add_argument('--memory-fraction', type=float, default=0.8,
                     help='cap on device memory; unified memory is host '
                          'RAM, so an uncapped run can OOM-kill the box')
