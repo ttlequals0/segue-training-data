@@ -28,7 +28,7 @@ dataset; the plan is in `docs/phase2-data-plan.md`.
 | `schema/example.schema.json` | JSON Schema for a training example |
 | `tools/` | Extraction, validation, dataset build, training, export, and evaluation scripts |
 | `runs/` | Config snapshot and scored results for each training run |
-| `docs/` | Training guide, design, phase 1 runbook, phase 2 data plan |
+| `docs/` | Training guide, glossary, design, phase 1 runbook, phase 2 data plan |
 | `benchmark.local.toml.example` | Benchmark harness config for scoring a locally served checkpoint |
 
 Each example pairs a fully rendered detection prompt (the same prompt MinusPod
@@ -87,7 +87,8 @@ the measured peak is 43.1 GiB on the longest window in this dataset.
 **[docs/training.md](docs/training.md) is the complete guide**: hardware,
 setup, the pinned base revision, every command with its expected output, and
 a troubleshooting section covering the failures hit during bring-up. Read that
-rather than assembling the steps from here. In short:
+rather than assembling the steps from here. Unfamiliar terms are defined in
+[docs/glossary.md](docs/glossary.md). In short:
 
 ```sh
 # Gate: refuses to train until data, renderer, and device check out

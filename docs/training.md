@@ -5,6 +5,9 @@ LoRA adapter. Every command is meant to be run verbatim. Where a number
 appears as expected output, it was measured on a DGX Spark unless the text
 says otherwise.
 
+Terms used here without explanation are defined in
+[glossary.md](glossary.md).
+
 ## What you get
 
 A LoRA adapter over Qwen3.5-9B that reads a rendered podcast transcript window
