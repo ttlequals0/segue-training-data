@@ -13,15 +13,28 @@ training, tooling, and scoring.
 
 ## Status
 
-The first checkpoint is trained and scored: a LoRA fine-tune of Qwen3.5-4B on
-156 examples reaching tier B, F0.5 0.686, with 1.00 JSON compliance and both
-no-ad control episodes passed, running at 3.6 seconds per window on a 16 GB
-card at no per-episode cost. Placed against the roster in [MinusPod's
-benchmark report](https://github.com/ttlequals0/MinusPod/blob/main/benchmarks/llm/results/report.md),
-that ties `gemini-3.1-flash-lite` and clears every untuned open-weight entry.
+Training runs locally now. `tools/train_local.py` (Transformers + PEFT, BF16
+LoRA on a single CUDA GPU) replaced the managed backend, gated by a preflight
+that renders every example and runs a real optimizer step before it will let
+a run start. [docs/training.md](docs/training.md) is the end-to-end guide.
 
-Full numbers are in `runs/20260830-162400-results.md`. Phase 2 widens the
-dataset; the plan is in `docs/phase2-data-plan.md`.
+The first local run finished on a DGX Spark: Qwen3.5-9B, LoRA rank 16 across
+248 linear modules, 3 epochs over 153 examples in 100 minutes, peaking at 43.1
+GiB. Held-out loss improved each epoch, 0.5632 to 0.5615 to 0.5426. Span-level
+scoring of that checkpoint is still to come, so treat it as a working pipeline
+rather than a result.
+
+Before it, the dataset was corrected against an audit: one span now means one
+contiguous ad break, spans whose only evidence was audio or whose category the
+prompt forbids were dropped with provenance, and `end_text` is validated
+rather than assumed. MinusPod's benchmark scorer was changed to match, so
+older scores are not comparable to new ones.
+
+The earlier managed-backend checkpoint (Qwen3.5-4B, tier B, F0.5 0.686) is
+recorded in `runs/20260830-162400-results.md`. That number predates the
+per-break scoring change and should be re-measured before it is compared with
+anything. Phase 2 widens the dataset; the plan is in
+`docs/phase2-data-plan.md`.
 
 ## What is in here
 
