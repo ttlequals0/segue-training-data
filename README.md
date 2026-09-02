@@ -137,21 +137,43 @@ uv run python tools/inspect_renderer.py
 `docs/phase1-runbook.md` has the vLLM serving config, the flags a 16 GB card
 needs, and the failures worth recognizing on the way.
 
-## Evaluation
+Two layers, scored the same way.
 
-Checkpoints are scored by MinusPod's LLM benchmark harness against a
-human-verified corpus. Run it from a copy, never inside the MinusPod
-checkout: the harness writes to a results directory that is tracked in git
-and holds the published multi-model history.
+**After every training run**, `tools/eval_generation.py` decodes the
+feed-held-out validation set with the adapter loaded and scores span-level
+accuracy directly. No serving stack required:
+
+```sh
+uv run python tools/eval_generation.py --run-id r2 --revision $REV \
+  --adapter .local/runs/r2/adapter
+```
+
+It reports JSON compliance, precision, recall, F0.5, false positives on
+windows that contain no ads, and boundary error, into `.local/eval-<run>.json`.
+Held-out loss during training is a progress signal, not this: a model can
+improve its token loss while getting no better at placing spans.
+
+**Before a release**, MinusPod's LLM benchmark harness scores the checkpoint
+against the human-verified corpus, which is what produces a row comparable to
+the published multi-model table. That path needs the model served over vLLM.
+Run the harness from a copy, never inside the MinusPod checkout, because it
+writes to a results directory that is tracked in git and holds the published
+history:
 
 ```sh
 tools/setup_isolated_benchmark.sh <minuspod> ~/segue-benchmark
 cp benchmark.local.toml.example ~/segue-benchmark/benchmarks/llm/benchmark.toml
 ```
 
-Set the vLLM base URL in that config, then follow the runbook. The corpus
-episodes are listed in `data/holdout.txt`, excluded from training by the
-extractor and checked again by the validator.
+Set the vLLM base URL in that config, then follow `docs/phase1-runbook.md`.
+The corpus episodes are listed in `data/holdout.txt`, excluded from training
+by the extractor and checked again by the validator.
+
+Both layers apply the same span policy: predictions and ground truth are
+merged into contiguous breaks (gaps under 15 seconds) before matching at
+IoU >= 0.5, and both rank by F0.5 rather than F1, because cutting real content
+is a worse failure than leaving an ad in. See
+[docs/glossary.md](docs/glossary.md) for the terms.
 
 ## Contributing data
 
