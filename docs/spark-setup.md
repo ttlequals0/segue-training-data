@@ -46,8 +46,27 @@ Build the dataset first; the val feeds come from the split manifest committed wi
 Preflight must pass before training; the trainer refuses a stale or missing
 stamp. The run manifest lands in runs/<run-id>.json and is committed.
 
-## Sizing
+## Sizing and the unified-memory trap
 
-9B BF16 weights are ~18 GB; LoRA training with gradient checkpointing and
-16k-token windows fits comfortably in unified memory. Preflight's optimizer
-step prints measured peak memory for the longest window.
+Unified memory on GB10 is host RAM. There is no separate VRAM pool: torch
+reports the device total as the machine's whole 121 GiB, and an allocation
+that targets it competes with the OS, containers, and every other process.
+An uncapped run does not raise a catchable CUDA error, it reaches the kernel
+OOM killer, which on a first attempt here killed eleven processes including a
+container's node process and the driving session.
+
+Both preflight and the trainer therefore cap the allocator with
+`--memory-fraction` (default 0.8, about 97 GiB, leaving roughly 24 GiB for
+everything else). Lower it on a busier box. The cap converts a machine-killer
+into a normal failed check, so do not raise it to 1.0 to make a run fit.
+
+9B BF16 weights are 16.7 GiB. The other large term is the vocabulary: at
+248,320 tokens, one 8,642-token window's logits are 4.0 GiB in bf16, 8.0 GiB
+upcast for the loss, plus an equal gradient. Preflight prints staged
+high-water marks (model loaded, after forward, after backward, after step) so
+a run that dies still leaves a measurement behind.
+
+Note that 24 of the 32 layers are linear-attention. Without
+`flash-linear-attention` and `causal-conv1d` installed they run an unfused
+torch fallback, which the warning at load time announces and which is a
+suspect for large activation cost.

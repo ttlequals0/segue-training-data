@@ -88,3 +88,18 @@ def test_check_passes_through_result_on_success():
     failures = []
     assert check("z", lambda: 42, failures) == 42
     assert failures == []
+
+
+def test_parse_memory_fraction_accepts_valid():
+    from preflight import parse_memory_fraction
+    assert parse_memory_fraction("0.8") == 0.8
+    assert parse_memory_fraction("1.0") == 1.0
+
+
+def test_parse_memory_fraction_rejects_out_of_range():
+    import argparse
+
+    from preflight import parse_memory_fraction
+    for bad in ("0", "-0.5", "1.5"):
+        with pytest.raises(argparse.ArgumentTypeError):
+            parse_memory_fraction(bad)
