@@ -62,11 +62,28 @@ def test_require_stamp_rejects_mismatch(tmp_path, monkeypatch):
         require_stamp(train, val, "m", "rev", 8192)
 
 
+def _args(**over):
+    base = {'epochs': 3, 'batch_size': 2, 'grad_accum': 8, 'lr': 1e-4,
+            'seed': 13, 'eval_steps': 10, 'save_steps': 5}
+    base.update(over)
+    return type('Args', (), base)()
+
+
+def test_build_training_args_eval_batch_matches_train(tmp_path):
+    try:
+        targs = build_training_args(tmp_path, _args(batch_size=1))
+    except ValueError as e:
+        pytest.skip(f"bf16 unsupported on this box: {e}")
+    # Upstream defaults eval to 8; at a 248k vocabulary that is a 52 GiB
+    # logits allocation and an OOM at the first evaluation.
+    assert targs.per_device_eval_batch_size == 1
+    assert targs.per_device_train_batch_size == 1
+    assert targs.save_steps == 5
+    assert targs.eval_steps == 10
+
+
 def test_build_training_args_fields(tmp_path):
-    args = type('Args', (), {
-        'epochs': 3, 'batch_size': 2, 'grad_accum': 8, 'lr': 1e-4,
-        'seed': 13,
-    })()
+    args = _args()
     try:
         targs = build_training_args(tmp_path, args)
     except ValueError as e:
