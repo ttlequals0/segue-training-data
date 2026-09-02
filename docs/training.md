@@ -186,6 +186,15 @@ recall, F0.5, false positives on no-ad windows, and boundary error. Results
 land in `.local/eval-r1.json`. Budget 30 to 45 minutes: this is generation,
 not scoring a file.
 
+Score the untuned base the same way before believing any of it:
+
+    uv run python tools/eval_generation.py --run-id base --revision $REV --base
+
+That is the number a fine-tune has to beat to have earned its existence. Two
+things usually separate them: whether the model returns parseable JSON at all,
+and whether it puts spans in the right places. A base model can be capable at
+the task and still score near zero because it answers in prose.
+
 It also prints the band the F0.5 lands in against the roster in MinusPod's
 published benchmark report, fetched live. That is an orientation, not a tier:
 the benchmark assigns tiers by a paired per-episode test against each tier's

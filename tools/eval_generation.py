@@ -106,6 +106,15 @@ def tier_band(f05, floors):
     return sorted(floors, key=lambda k: floors[k])[0]
 
 
+def select_source(adapter, merged, base):
+    """Which weights to score: exactly one of adapter, merged, or base."""
+    chosen = [name for name, on in (('adapter', adapter), ('merged', merged),
+                                    ('base', base)) if on]
+    if len(chosen) != 1:
+        raise SystemExit('pass exactly one of --adapter, --merged, or --base')
+    return chosen[0]
+
+
 def _ranges(ads):
     normed = [{'start': a['start'], 'end': a['end'],
                'confidence': float(a.get('confidence', 0.0))} for a in ads]
@@ -185,32 +194,37 @@ def main():
     ap.add_argument('--revision', required=True)
     ap.add_argument('--adapter', help='PEFT adapter dir (omit with --merged)')
     ap.add_argument('--merged', help='merged model dir (omit with --adapter)')
+    ap.add_argument('--base', action='store_true',
+                    help='score the untuned base model, the baseline '
+                         'a fine-tune has to beat to have earned its '
+                         'existence')
     ap.add_argument('--run-id', required=True)
     args = ap.parse_args()
-    if bool(args.adapter) == bool(args.merged):
-        raise SystemExit('pass exactly one of --adapter or --merged')
+    source = select_source(args.adapter, args.merged, args.base)
 
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     with open(args.val, encoding='utf-8') as f:
         rows = [json.loads(line) for line in f if line.strip()]
-    if args.merged:
+    if source == 'merged':
         tokenizer = AutoTokenizer.from_pretrained(args.merged)
         model = AutoModelForCausalLM.from_pretrained(
             args.merged, dtype=torch.bfloat16, device_map='auto')
     else:
-        from peft import PeftModel
         tokenizer = AutoTokenizer.from_pretrained(args.model,
                                                   revision=args.revision)
-        base = AutoModelForCausalLM.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             args.model, revision=args.revision, dtype=torch.bfloat16,
             device_map='auto')
-        model = PeftModel.from_pretrained(base, args.adapter)
+        if source == 'adapter':
+            from peft import PeftModel
+            model = PeftModel.from_pretrained(model, args.adapter)
     model.eval()
 
     predictions = generate_all(model, tokenizer, rows, args.model)
     result = score(rows, predictions)
+    result['source'] = source
     floors, source = load_tier_floors()
     if floors:
         result['tier_band'] = tier_band(result['f05'], floors)
