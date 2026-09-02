@@ -184,11 +184,32 @@ seconds, on predictions and ground truth alike, before matching. Mirrors the
 detection prompt's own merge rule, so a model is not punished for splitting
 one ad break into adjacent spots, or rewarded for the reverse.
 
-**Precision**: Of the spans predicted, the fraction that were real ads. Low
-precision means cutting real show content.
+**TP (true positive)**: A predicted span that matched a real ad span at
+IoU >= 0.5 after canonicalization. The model found an ad that was there.
 
-**Recall**: Of the real ads, the fraction found. Low recall means ads survive
-in the output.
+**FP (false positive)**: A predicted span that matched no real ad. In this
+pipeline that means audio was cut out of the show, so it is the expensive
+error and the reason scoring weights precision double.
+
+**FN (false negative)**: A real ad span that no prediction matched. The ad
+stays in the episode.
+
+**TN (true negative)**: Not counted here, and worth knowing why. Scoring is
+over spans, not over every instant of audio, so there is no enumerable set of
+"correct non-ads" to count. This is why accuracy is never quoted: with most of
+a podcast being content, any model that predicted nothing would score
+extremely well on it. The no-ad control episodes serve that purpose instead.
+
+**Matching**: Predictions and truth are paired greedily, highest IoU first,
+one to one. A prediction can match at most one truth span and vice versa, so a
+single prediction covering two real ads scores as one TP and one FN, not two
+TPs.
+
+**Precision**: Of the spans predicted, the fraction that were real ads,
+TP / (TP + FP). Low precision means cutting real show content.
+
+**Recall**: Of the real ads, the fraction found, TP / (TP + FN). Low recall
+means ads survive in the output.
 
 **F1**: Harmonic mean of precision and recall, weighting them equally.
 
