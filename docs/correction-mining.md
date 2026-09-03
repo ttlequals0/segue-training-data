@@ -1,14 +1,15 @@
 # Mining human corrections
 
 A spec for the next training experiment. Measured against a database copy
-taken 2026-09-03.
+taken 2026-09-03 and the benchmark corpus at MinusPod f45ce8e2, which fixed
+two truth files (see "What the false positives are").
 
 ## Why
 
 The first local run produced a null result. On the benchmark corpus the
-fine-tuned adapter scored F0.5 0.735 and the untuned base scored 0.735. The
-adapter genuinely changed the model, 25 of 171 answers differ, and none of it
-reached the score.
+fine-tuned adapter scored F0.5 0.739 and the untuned base scored 0.739
+(0.735 and 0.735 before the corpus fix). The adapter genuinely changed the
+model, 25 of 171 answers differ, and none of it reached the score.
 
 The dataset explains that. All 200 training examples carry tier
 `machine_accepted` with `reviewed` and `corrected` false. That is the tag, not
@@ -59,33 +60,54 @@ each edge.
 
 For scale, the current dataset is 17 episodes and 200 windows.
 
+## What the false positives are
+
+The base run's false positives were categorized by hand before writing the
+hypothesis, because the corpus truth is human-verified and each one is
+either a real over-cut or a truth gap. Two turned out to be truth gaps and
+are fixed in MinusPod f45ce8e2: a missing 68 second pre-roll sponsor read,
+and a 76 second network promo left rejected although the reviewer rules
+count stand-alone promos. Re-scored on the fixed corpus, base and adapter
+both move from 0.735 to 0.739 and stay tied. Base: TP 41, FP 17, FN 8,
+precision 0.729, recall 0.804. Adapter: TP 42, FP 18, FN 7.
+
+The 17 remaining base false positives:
+
+| Kind | Count | What happened |
+|---|---:|---|
+| Fragment of a matched break | 7 | Three truth spans predicted as two or three pieces each, no piece reaching IoU 0.5 |
+| Boundary miss on a real ad | 8 | One prediction overlapping a truth span, too short or too long for IoU 0.5. Includes the network promo: both models predicted 5.4 of its 75.6 seconds |
+| Not an ad | 2 | A host plugging their own show, and a sponsor-name riff on a stretch of degraded transcript |
+
+Fifteen of seventeen are extent errors on real ads, not detections of
+non-ads. Joining the fragments alone would give the base TP 44, FP 10, FN 5,
+about F0.5 0.83 (derived from the per-break lists, not a run). Both no-ad
+control episodes produced zero predictions from both models.
+
+The instance's rejected markers (of 261
+demoted markers, 95 have no category, 53 are `sponsor`, 39 `self_promo`, 39
+`outro`, 16 `intro`, 13 `interaction`, 4 `cross_promo`, 2 `recap`) can reach
+at most the 2 "not an ad" rows, so hard negatives are a secondary arm. And
+the model's `reason` strings are partly confabulated (several cite a sponsor
+the window does not contain), so they must not be used as supervision or as
+evidence of what the model saw.
+
 ## Hypothesis
 
-Training on windows a person corrected reduces false positives on the
-benchmark corpus.
+Training on windows a person corrected teaches the model to emit one span
+per ad break at the break's full extent, which raises IoU on the benchmark
+corpus.
 
-Prediction: false positives fall below 18 while recall holds at or above
-0.84. Both models currently over-cut, 18 to 19 false positives against 6 to 7
-misses, and since F0.5 weights precision double that is what holds both scores
-at 0.735.
+Prediction: on the fixed corpus, base false positives fall below 17 and
+misses below 8 in the same run, with the fragment and boundary rows above
+accounting for the change. Recall must not fall below 0.80. Hard negatives
+are expected to move no more than 2.
 
-If false positives do not fall, the ceiling is not the model, and the next
-question is what the model is over-cutting and whether these corrections say
-anything about it.
+If the fragment and boundary rows do not shrink, the corrections do not
+carry extent information the model can use, and the next lever is the
+prompt's merge rule or the window size, not the training data.
 
 This is falsifiable in a way "add more data" was not.
-
-## Before building
-
-Categorize the 18 benchmark false positives by hand first. The corpus truth
-files are human-verified, so these are real over-cuts, and sorting them
-(sponsor read, self promo, cross promo, intro or outro, host interaction)
-costs nothing. It decides whether the instance's corrections can reach them.
-The human-rejected markers on the instance skew toward non-sponsor content:
-of 261 demoted markers, 95 have no category, 53 are `sponsor`, 39
-`self_promo`, 39 `outro`, 16 `intro`, 13 `interaction`, 4 `cross_promo`,
-2 `recap`. If the 18 are mostly sponsor reads, hard negatives about intros and
-outros will not move them.
 
 ## Design
 
@@ -160,14 +182,14 @@ thing.
 
 ## Success criteria
 
-The run is worth keeping if, on the benchmark corpus and against the base at
-0.735:
+The run is worth keeping if, on the benchmark corpus at f45ce8e2 and
+against the base at 0.739:
 
-- False positives fall below 18 with recall at or above 0.84, and the
+- False positives fall below 17 with recall at or above 0.80, and the
   benchmark's per-episode paired test against the base row is significant.
   The two must run in one roster for that test to pair them; separate runs
   cannot be compared this way. One fewer false positive is inside the
-  +/-0.114 confidence interval and does not count as confirmation.
+  +/-0.115 confidence interval and does not count as confirmation.
 - Both no-ad controls still pass.
 - JSON compliance stays at or above 0.9968.
 
@@ -194,9 +216,15 @@ restoration, re-windowing for multi-ad coverage, and synthetic augmentation.
 Those are the phase 2 plan's items and none of them test this hypothesis.
 
 Re-extraction under MinusPod's corrected same-sponsor merge rule is also
-separate. It is worth doing, and it addresses the 20 training spans that run
-past 180 seconds, but the base row showed over-detection is not caused by
-those labels.
+separate. It addresses the 20 training spans that run past 180 seconds. The
+fragment row above makes it more relevant than it looked, since those spans
+are the only examples of long single breaks the dataset has, but it is a
+label change to the machine-accepted majority and belongs in its own run.
+
+Corpus annotation policy is out of scope here but two cases should be
+settled in MinusPod: network bumpers ("Here's a show we recommend") and a
+host plugging their own show. The first is now counted as an ad; the second
+is still scored as a false positive.
 
 ## Risks
 
@@ -205,11 +233,26 @@ trained on them learns that person's boundary preferences, which is an
 improvement over learning another model's guesses but is not ground truth.
 The benchmark corpus is the check, since it was annotated separately.
 
-The rejected markers may not resemble the benchmark's false positives. The
-categorization above is the check; if the kinds do not overlap, a null result
-says nothing about hard negatives in general.
+The rejected markers do not resemble most of the benchmark's false
+positives; only 2 of 17 are detections of non-ads. A null result on the hard
+negative arm is expected and says nothing about hard negatives in general.
+
+The extent signal is also one person's preference. Trimmed confirms record
+where that person cut, and the benchmark reviewer rules (include the
+transition phrase, end at the final URL) may not match. Boundary MAE on the
+benchmark is the check.
 
 23 usable boundary adjustments is a small set; the 376 trimmed confirms carry
 most of the boundary signal. Expect boundaries to sharpen only slightly, and
 do not read a boundary improvement as significant without the confidence
 interval.
+
+## Provenance
+
+- Base run: Qwen3.5-9B revision c202236235762e1c871ad0ccb60c8ee5ba337b9a,
+  no adapter. Adapter run: r2 (`runs/r2.json`).
+- Corpus: MinusPod f45ce8e2. Both runs were re-scored offline from their
+  stored `results/raw/calls.jsonl` after the truth fix; nothing was
+  re-captured, and `windows_stale` is false on all 171 rows of each run.
+- False positive lists: `~/segue-fp-export/fp-base-corrected.json` on the
+  training box (17 records), produced by `fp_extract.py` there.
