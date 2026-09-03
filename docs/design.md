@@ -160,10 +160,23 @@ transformers rejects. Unified memory made the first of those a host-level OOM
 rather than a catchable error, so both preflight and the trainer now cap the
 allocator.
 
+Scored on the held-out split, 47 windows and 23 truth spans: the untuned base
+reaches F0.5 0.783 at 97.9 percent JSON compliance, the adapter 0.840 at 100
+percent, the merged model 0.798 at 100 percent. Full numbers and analysis in
+`runs/r2-results.md`.
+
+Two findings from that. The base model is far stronger than phase 1's framing
+assumed, so the fine-tune's accuracy gain is two spans out of 23, inside the
+noise, while its compliance gain is outside it. And merging is not equivalent
+on this architecture: the difference survives an fp32 merge because it lives
+in rounding the adapter into bf16 weights rather than applying it to
+activations, and it is measurable in the scores. The adapter is the artifact
+of record; a merged model needs its own eval.
+
 Next up:
 
-- Score `r2` with `eval_generation.py` and export it through the equivalence
-  gate, then record the run in `runs/`.
+- Run the benchmark corpus against the adapter. The held-out split cannot
+  separate 0.783 from 0.840, and the corpus is what the published table uses.
 - Phase 2: more data and longer training. The failure is entirely recall
   (0.738 precision against 0.592 recall), concentrated in short ads, 0.25 at
   under 30 seconds, and post-roll ads at 0.36. The model merges adjacent
