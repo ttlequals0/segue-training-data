@@ -118,9 +118,32 @@ def test_resolve_auto_approval_does_not_override_human_rejection():
         correction('false_positive', bounds(0, 20)),
         correction('confirm', bounds(0, 20), human=False),
     ], [marker(0, 20), marker(15, 40)])
-    assert sorted((h['label'], h['action']) for h in hits) == [
-        ('false_positive', 'block'), ('false_positive', 'drop')]
+    assert [(h['label'], h['action']) for h in hits] == [
+        ('false_positive', 'drop'), ('false_positive', 'block')]
     assert stale == 0
+
+
+def test_resolve_auto_approval_does_not_override_human_positive():
+    hits, _ = resolve_corrections([
+        correction('confirm', bounds(10, 40)),
+        correction('confirm', bounds(20, 30), human=False),
+    ], [marker(20, 30)])
+    assert [(h['label'], h['action']) for h in hits] == [('confirm', 'block')]
+    hits, _ = resolve_corrections([
+        correction('confirm', bounds(0, 20)),
+        correction('confirm', bounds(0, 20), human=False),
+    ], [marker(0, 20)])
+    assert [(h['label'], h['action']) for h in hits] == [('confirm', 'keep')]
+
+
+def test_resolve_withdrawn_rejection_is_not_revived_by_a_later_one():
+    hits, _ = resolve_corrections([
+        correction('false_positive', bounds(100, 400)),
+        correction('confirm', bounds(100, 200)),
+        correction('false_positive', bounds(300, 510)),
+    ], [marker(100, 200), marker(300, 400), marker(90, 105)])
+    assert [(h['marker']['start'], h['label'], h['action']) for h in hits] == [
+        (100, 'confirm', 'keep'), (300, 'false_positive', 'drop')]
 
 
 def test_resolve_partly_withdrawn_rejection_still_blocks():

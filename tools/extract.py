@@ -176,12 +176,12 @@ def resolve_corrections(corrections, markers):
     """(hits, stale): each hit is a marker with a keep, drop or block action.
 
     Newest decision on a marker wins, but an auto-approval never overrides a
-    person. After all decisions, a rejection a person has not fully withdrawn
-    blocks any cut marker it clips that no person ruled on."""
+    person. After all decisions, a rejection still deciding at least one of
+    its markers blocks any cut marker it clips that no person ruled on."""
     hits, stale, rejections = {}, 0, []
 
     def ruled_by_person(m):
-        return id(m) in hits and not hits[id(m)]['label'].startswith('auto_')
+        return id(m) in hits and hits[id(m)]['source']['human']
 
     for c in corrections:
         label = c['type']
@@ -198,7 +198,7 @@ def resolve_corrections(corrections, markers):
                         if not m.get('was_cut', True)]
                        + [(m, 'drop') for m in targeted(bounds, markers, covers)
                           if m.get('was_cut', True)])
-            rejections.append((bounds, [m for m, _ in targets]))
+            rejections.append((c, [m for m, _ in targets]))
         else:
             target = c['corrected'] or c['original']
             exact = targeted(target, markers, same_span)
@@ -214,14 +214,16 @@ def resolve_corrections(corrections, markers):
                 stale += 1
         for m, action in targets:
             if c['human'] or not ruled_by_person(m):
-                hits[id(m)] = {'marker': m, 'label': label, 'action': action}
-    for bounds, targets in rejections:
-        if targets and all(hits[id(m)]['label'] != 'false_positive' for m in targets):
+                hits[id(m)] = {'marker': m, 'label': label, 'action': action, 'source': c}
+    for c, targets in rejections:
+        if targets and all(hits[id(m)]['source'] is not c for m in targets):
             continue
-        clipped = [m for m in markers if m.get('was_cut', True) and clip(m, bounds)]
+        clipped = [m for m in markers
+                   if m.get('was_cut', True) and clip(m, c['original'])]
         for m in clipped:
             if not ruled_by_person(m):
-                hits[id(m)] = {'marker': m, 'label': 'false_positive', 'action': 'block'}
+                hits[id(m)] = {'marker': m, 'label': 'false_positive',
+                               'action': 'block', 'source': c}
         if not targets and not clipped:
             stale += 1
     return list(hits.values()), stale
@@ -448,7 +450,7 @@ def main():
     print(f"ad spans: {stats['ads']}")
     print(f"tiers: {format_counts(tiers)}")
     print(f"corrections on windows: {format_counts(labels)}")
-    print(f"stale corrections (no matching marker): {stats['stale_corrections']}")
+    print(f"stale corrections (touch no marker): {stats['stale_corrections']}")
     print(f"corrections on ambiguous episode ids: {stats['ambiguous_id_corrections']}")
     print(f"window config: {win_size:.0f}s size / {win_overlap:.0f}s overlap")
     print(f"system prompt: {system_ref}")
