@@ -172,6 +172,11 @@ def targeted(bounds, markers, relation):
     return [m for m in markers if relation(bounds, m)] if bounds else []
 
 
+def correction_label(c):
+    label = 'confirm_trimmed' if c['type'] == 'confirm' and c['corrected'] else c['type']
+    return label if c['human'] else 'auto_' + label
+
+
 def resolve_corrections(corrections, markers):
     """(hits, stale): each hit is a marker with a keep, drop or block action.
 
@@ -184,11 +189,7 @@ def resolve_corrections(corrections, markers):
         return id(m) in hits and hits[id(m)]['source']['human']
 
     for c in corrections:
-        label = c['type']
-        if c['type'] == 'confirm' and c['corrected']:
-            label = 'confirm_trimmed'
-        if not c['human']:
-            label = 'auto_' + label
+        label = correction_label(c)
         if c['type'] == 'false_positive':
             bounds = c['original']
             if not bounds:
@@ -216,13 +217,13 @@ def resolve_corrections(corrections, markers):
             if c['human'] or not ruled_by_person(m):
                 hits[id(m)] = {'marker': m, 'label': label, 'action': action, 'source': c}
     for c, targets in rejections:
-        if targets and all(hits[id(m)]['source'] is not c for m in targets):
+        if targets and not any(hits[id(m)]['source'] is c for m in targets):
             continue
         clipped = [m for m in markers
                    if m.get('was_cut', True) and clip(m, c['original'])]
         for m in clipped:
             if not ruled_by_person(m):
-                hits[id(m)] = {'marker': m, 'label': 'false_positive',
+                hits[id(m)] = {'marker': m, 'label': correction_label(c),
                                'action': 'block', 'source': c}
         if not targets and not clipped:
             stale += 1
