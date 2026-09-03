@@ -1,0 +1,14 @@
+{
+  "n": 47,
+  "json_compliance": 1.0,
+  "precision": 0.8333,
+  "recall": 0.8696,
+  "f05": 0.8403,
+  "tp": 20,
+  "fp": 4,
+  "fn": 3,
+  "noad_windows": 24,
+  "noad_fp": 3,
+  "start_mae": 8.31,
+  "end_mae": 7.81
+}
