@@ -99,7 +99,7 @@ def fix_example(ex, keep):
     if dropped or fixes:
         prov = dict(out['provenance'])
         if dropped:
-            prov['dropped_spans'] = [
+            prov['dropped_spans'] = prov.get('dropped_spans', []) + [
                 {'start': d['start'], 'end': d['end'], 'category': d['category'],
                  'reason': d['reason'], 'rule': d['rule']} for d in dropped]
         if fixes:

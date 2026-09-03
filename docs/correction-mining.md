@@ -40,7 +40,7 @@ that matters: without `original_segments_json` a window cannot be rebuilt.
 
 | Type | Count | With transcript | What it is |
 |---|---:|---:|---|
-| `confirm` | 734 | 641 | A person verified a span is an ad |
+| `confirm` | 734 | 641 | A span verified as an ad; see the split below |
 | `false_positive` | 300 | 218 | A person ruled a span is not an ad |
 | `boundary_adjustment` | 83 | 23 | A person moved a span's edges |
 | `create` | 8 | 3 | A person authored a span |
@@ -49,16 +49,27 @@ that matters: without `original_segments_json` a window cannot be rebuilt.
 505 distinct episodes carry a correction; 423 of those still have a
 transcript.
 
-Boundary supervision is larger than the `boundary_adjustment` row suggests.
-376 of the confirms are trimmed confirms whose `corrected_bounds` differ from
-`original_bounds`, a mean total edge shift of 21.8 seconds (median 21.6).
-The 83 boundary adjustments shift 39.8 seconds on average (median 10.0), but
-only 23 of them sit on episodes with a transcript. Both are before and after
-pairs rather than bare labels, and they target the metric this project is
-weakest on: measured boundary error on the first run was around 8 seconds at
-each edge.
+The `confirm` row is mostly not human. 598 of the 734 are written by
+`process_episode` when pass 2 corroborates a held marker (`text_snippet`
+starts with `auto-approved:`), and 371 of those carry a `corrected_bounds`
+trimmed to the pass-2 span. Only 136 confirms are a person's decision, and
+5 of those are trimmed.
 
-For scale, the current dataset is 17 episodes and 200 windows.
+| Confirm kind | Count | With transcript |
+|---|---:|---:|
+| Human, bounds unchanged | 131 | 38 |
+| Human, trimmed | 5 | 5 |
+| Auto-approved, bounds unchanged | 227 | 227 |
+| Auto-approved, trimmed | 371 | 371 |
+
+So human boundary supervision on episodes with a transcript is 23 boundary
+adjustments, 5 trimmed confirms, and 3 creates. The 371 auto-approved trims
+(mean total edge shift 21.8 seconds, median 21.6) are pass-2 output, the same
+detector this project is trying to replace, and stay `machine_accepted`.
+They are tagged in provenance so they can be ablated on their own. The 83
+boundary adjustments shift 39.8 seconds on average (median 10.0).
+
+For scale, the dataset before this change was 17 episodes and 200 windows.
 
 ## What the false positives are
 
@@ -154,16 +165,30 @@ Provenance already has the vocabulary; nothing new is needed.
 
 - `human_verified`: the window contains a span with a `confirm` or `create`
   correction.
-- `hard_negative`: the window contains a marker with `was_cut=False` and
-  `validation.decision=REJECT`, so the completion omits a span the pipeline
-  detected and a person rejected.
+- `hard_negative`: the window contains a span with a `false_positive`
+  correction whose marker is no longer cut. Marker state alone cannot
+  identify these: rejected markers sit in six different
+  (decision, review, source) combinations in the database, so the join is
+  by `original_bounds` within 0.5 seconds of a marker.
 - `human_verified` also covers `boundary_adjustment` and trimmed `confirm`
   windows, with the shift recorded in provenance so an ablation can isolate
   them.
 - `machine_accepted`: everything else, as today.
 
 Record the correction types per example in provenance so a run can train on
-any subset and so the ablation below is possible.
+any subset and so the ablation below is possible. Auto-approved confirms are
+recorded as `auto_confirm` and `auto_confirm_trimmed` and never change the
+tier.
+
+### Result
+
+Extractor 0.2.0 over the same database copy, `--limit 0`: 740 episodes,
+9036 windows (79% empty), 1579 windows skipped for a pending or
+uncategorized marker, 21 episodes with every window skipped. Tiers:
+`human_verified` 66, `hard_negative` 202, `machine_accepted` 8768. 38
+corrections matched no marker and were ignored. Three windows had a
+rejected span that was still cut; those spans were dropped and recorded
+under `dropped_spans` with rule `rejected_but_cut`.
 
 ### Holdout
 
@@ -242,10 +267,10 @@ where that person cut, and the benchmark reviewer rules (include the
 transition phrase, end at the final URL) may not match. Boundary MAE on the
 benchmark is the check.
 
-23 usable boundary adjustments is a small set; the 376 trimmed confirms carry
-most of the boundary signal. Expect boundaries to sharpen only slightly, and
-do not read a boundary improvement as significant without the confidence
-interval.
+Human extent supervision is 31 corrections; the trimmed confirms that
+looked like the bulk of it are pass-2 output. Expect boundaries to sharpen
+only slightly, and do not read a boundary improvement as significant without
+the confidence interval.
 
 ## Provenance
 

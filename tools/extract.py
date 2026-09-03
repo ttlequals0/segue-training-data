@@ -7,6 +7,8 @@ intersect it.
 
 Usage:
     uv run python tools/extract.py --db .local/minuspod.db [--limit 25]
+
+--limit 0 takes every eligible episode.
 """
 import argparse
 import datetime
@@ -25,6 +27,9 @@ from common import (  # noqa: E402
 WINDOW_SIZE_DEFAULT = 600.0
 WINDOW_OVERLAP_DEFAULT = 180.0
 MIN_AD_OVERLAP_SECONDS = 1.0
+BOUNDS_TOLERANCE_SECONDS = 0.5
+AUTO_APPROVED_PREFIX = 'auto-approved'  # written by MinusPod process_episode on pass-2 corroboration
+CORRECTED_LABELS = {'false_positive', 'boundary_adjustment', 'create', 'confirm_trimmed'}
 
 
 def read_window_settings(conn):
@@ -66,10 +71,10 @@ def window_completion(markers, window, segments):
     """Ads intersecting this window, clipped to its bounds, sorted by start."""
     out = []
     for m in markers:
-        s = max(float(m['start']), window['start'])
-        e = min(float(m['end']), window['end'])
-        if e - s < MIN_AD_OVERLAP_SECONDS:
+        clipped = clip(m, window)
+        if clipped is None:
             continue
+        s, e = clipped
         entry = {
             'start': round(s, 2),
             'end': round(e, 2),
@@ -88,18 +93,102 @@ def window_completion(markers, window, segments):
     return sorted(out, key=lambda a: a['start'])
 
 
-def usable_markers(markers):
-    """Cut markers only; None when the episode's labels are unusable."""
-    kept = []
+def clip(span, window):
+    """(start, end) of span inside window, or None if the overlap is too short."""
+    s = max(float(span['start']), window['start'])
+    e = min(float(span['end']), window['end'])
+    return (s, e) if e - s >= MIN_AD_OVERLAP_SECONDS else None
+
+
+def partition_markers(markers):
+    """Split into (cut, blocking); None when a marker has no bounds.
+
+    Blocking markers are pending review (same rule as MinusPod's
+    config.is_pending_review, inlined so tests need no MinusPod checkout) or
+    cut without a category; windows they touch are skipped, not emitted short."""
+    cut, blocking = [], []
     for m in markers:
-        if not m.get('was_cut', True) or m.get('held_for_review'):
-            continue
         if 'start' not in m or 'end' not in m:
             return None
-        if not m.get('category'):
-            return None  # uncategorized: wait for the Phase 2 backfill
-        kept.append(m)
-    return kept
+        was_cut = m.get('was_cut', True)
+        pending = bool(m.get('held_for_review')) and not was_cut
+        if pending or (was_cut and not m.get('category')):
+            blocking.append(m)
+        elif was_cut:
+            cut.append(m)
+    return cut, blocking
+
+
+def parse_bounds(raw):
+    if not raw:
+        return None
+    b = json.loads(raw)
+    return {'start': float(b['start']), 'end': float(b['end'])}
+
+
+def fetch_corrections(conn):
+    """Corrections keyed by episode_id; pass-2 auto-approvals are not human."""
+    by_episode = defaultdict(list)
+    rows = conn.execute("""
+        SELECT episode_id, correction_type, original_bounds, corrected_bounds,
+               text_snippet
+        FROM pattern_corrections
+        WHERE correction_type IN ('confirm', 'false_positive',
+                                  'boundary_adjustment', 'create')
+    """)
+    for row in rows:
+        by_episode[row['episode_id']].append({
+            'type': row['correction_type'],
+            'original': parse_bounds(row['original_bounds']),
+            'corrected': parse_bounds(row['corrected_bounds']),
+            'human': not (row['text_snippet'] or '').startswith(AUTO_APPROVED_PREFIX),
+        })
+    return by_episode
+
+
+def same_span(bounds, marker):
+    return (abs(bounds['start'] - float(marker['start'])) <= BOUNDS_TOLERANCE_SECONDS
+            and abs(bounds['end'] - float(marker['end'])) <= BOUNDS_TOLERANCE_SECONDS)
+
+
+def resolve_corrections(corrections, markers):
+    """Attach each correction to the marker it targets.
+
+    Returns (resolved, stale). Labels carry an auto_ prefix when the
+    correction was not a human decision. A false positive whose marker is
+    still cut contradicts the labels; it is flagged so the marker is dropped."""
+    resolved, stale = [], 0
+    for c in corrections:
+        if c['type'] == 'false_positive':
+            target = c['original']
+        else:
+            target = c['corrected'] or c['original']
+        match = next((m for m in markers if same_span(target, m)), None) if target else None
+        if match is None:
+            stale += 1
+            continue
+        label = c['type']
+        if c['type'] == 'confirm' and c['corrected'] and c['corrected'] != c['original']:
+            label = 'confirm_trimmed'
+        if not c['human']:
+            label = 'auto_' + label
+        resolved.append({
+            'marker': match, 'label': label,
+            'drop': c['type'] == 'false_positive' and match.get('was_cut', True),
+        })
+    return resolved, stale
+
+
+def classify_window(labels):
+    """(tier, reviewed, corrected) from the correction labels touching a window."""
+    human = {label for label in labels if not label.startswith('auto_')}
+    if human - {'false_positive'}:
+        tier = 'human_verified'
+    elif human:
+        tier = 'hard_negative'
+    else:
+        tier = 'machine_accepted'
+    return tier, bool(human), bool(human & CORRECTED_LABELS)
 
 
 def fetch_episodes(conn):
@@ -109,7 +198,7 @@ def fetch_episodes(conn):
                p.description AS podcast_description,
                e.episode_id, e.title AS episode_title,
                e.description AS episode_description,
-               e.pending_review_count, e.processed_at,
+               e.processed_at,
                ed.ad_markers_json, ed.original_segments_json
         FROM episodes e
         JOIN podcasts p ON p.id = e.podcast_id
@@ -121,13 +210,17 @@ def fetch_episodes(conn):
     """).fetchall()
 
 
+def format_counts(counter):
+    return ", ".join(f"{k}={n}" for k, n in sorted(counter.items()))
+
+
 def round_robin(rows, limit):
     by_feed = defaultdict(list)
     for row in rows:
         by_feed[row['slug']].append(row)
     picked, feeds = [], sorted(by_feed)
     i = 0
-    while len(picked) < limit and any(by_feed.values()):
+    while (not limit or len(picked) < limit) and any(by_feed.values()):
         feed = feeds[i % len(feeds)]
         if by_feed[feed]:
             picked.append(by_feed[feed].pop(0))
@@ -175,22 +268,35 @@ def main():
         if (row['slug'], row['episode_id']) in holdout:
             skipped['holdout'] += 1
             continue
-        if row['pending_review_count']:
-            skipped['pending_review'] += 1
-            continue
         eligible.append(row)
 
-    stats = {'episodes': 0, 'windows': 0, 'empty_windows': 0, 'ads': 0}
+    corrections = fetch_corrections(conn)
+    stats = defaultdict(int)
+    tiers = defaultdict(int)
+    labels = defaultdict(int)
     feeds_seen = set()
     for row in round_robin(eligible, args.limit):
-        markers = usable_markers(json.loads(row['ad_markers_json'] or '[]'))
-        if markers is None:
+        all_markers = json.loads(row['ad_markers_json'] or '[]')
+        parts = partition_markers(all_markers)
+        if parts is None:
             skipped['unusable_markers'] += 1
             continue
+        cut, blocking = parts
+        resolved, stale = resolve_corrections(
+            corrections.get(row['episode_id'], []), all_markers)
+        stats['stale_corrections'] += stale
+        dropped = {id(h['marker']) for h in resolved if h['drop']}
+        cut = [m for m in cut if id(m) not in dropped]
         segments = json.loads(row['original_segments_json'])
         windows = create_windows(segments, window_size=win_size, overlap=win_overlap)
         if not windows:
             skipped['no_windows'] += 1
+            continue
+        kept = [(idx, w) for idx, w in enumerate(windows)
+                if not any(clip(b, w) for b in blocking)]
+        skipped['blocked_windows'] += len(windows) - len(kept)
+        if not kept:
+            skipped['all_windows_blocked'] += 1
             continue
 
         description_section = build_description_section(
@@ -199,7 +305,31 @@ def main():
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
         with out_path.open('w', encoding='utf-8') as f:
-            for idx, window in enumerate(windows):
+            for idx, window in kept:
+                hits = [h for h in resolved if clip(h['marker'], window)]
+                window_labels = sorted({h['label'] for h in hits})
+                tier, reviewed, corrected = classify_window(window_labels)
+                provenance = {
+                    'reviewed': reviewed,
+                    'corrected': corrected,
+                    'category_source': 'original',
+                    'audio_context_omitted': True,
+                    'extracted_at': now,
+                    'extractor_version': EXTRACTOR_VERSION,
+                }
+                if window_labels:
+                    provenance['corrections'] = window_labels
+                dropped_spans = [
+                    {'start': float(h['marker']['start']),
+                     'end': float(h['marker']['end']),
+                     'category': h['marker']['category'],
+                     'reason': str(h['marker'].get('reason', '')),
+                     'rule': 'rejected_but_cut'}
+                    for h in hits if h['drop']]
+                if dropped_spans:
+                    provenance['dropped_spans'] = dropped_spans
+                for label in window_labels:
+                    labels[label] += 1
                 lines = [f"[{seg['start']:.1f}s - {seg['end']:.1f}s] {seg['text']}"
                          for seg in window['segments']]
                 user_prompt = format_window_prompt(
@@ -213,7 +343,8 @@ def main():
                     window_end=window['end'],
                     audio_context='',
                 )
-                completion = window_completion(markers, window, window['segments'])
+                completion = window_completion(cut, window, window['segments'])
+                tiers[tier] += 1
                 example = {
                     'id': f"{row['slug']}/{row['episode_id']}/w{idx}",
                     'source': {
@@ -224,7 +355,7 @@ def main():
                         'license': args.license,
                         'instance': args.instance,
                     },
-                    'tier': 'machine_accepted',
+                    'tier': tier,
                     'prompt': {
                         'system': system_ref,
                         'user': user_prompt,
@@ -233,14 +364,7 @@ def main():
                     },
                     'completion': completion,
                     'teacher': {'model': args.teacher_model},
-                    'provenance': {
-                        'reviewed': False,
-                        'corrected': False,
-                        'category_source': 'original',
-                        'audio_context_omitted': True,
-                        'extracted_at': now,
-                        'extractor_version': EXTRACTOR_VERSION,
-                    },
+                    'provenance': provenance,
                 }
                 f.write(json.dumps(example, ensure_ascii=False) + '\n')
                 stats['windows'] += 1
@@ -254,6 +378,9 @@ def main():
     print(f"windows: {stats['windows']} ({stats['empty_windows']} empty, "
           f"{stats['empty_windows'] / max(stats['windows'], 1):.0%})")
     print(f"ad spans: {stats['ads']}")
+    print(f"tiers: {format_counts(tiers)}")
+    print(f"corrections on windows: {format_counts(labels)}")
+    print(f"stale corrections (no matching marker): {stats['stale_corrections']}")
     print(f"window config: {win_size:.0f}s size / {win_overlap:.0f}s overlap")
     print(f"system prompt: {system_ref}")
     for reason, count in sorted(skipped.items()):
