@@ -181,15 +181,15 @@ def resolve_corrections(corrections, markers):
     """(hits, stale): each hit is a marker with a keep, drop or block action.
 
     Newest decision on a marker wins, but an auto-approval never overrides a
-    person. After all decisions, a rejection still deciding at least one of
-    its markers blocks any cut marker it clips that no person ruled on."""
+    person. A rejection stands until a person confirms every marker it
+    matched; while it stands it blocks any cut marker it clips that no
+    person ruled on."""
     hits, stale, rejections = {}, 0, []
 
     def ruled_by_person(m):
         return id(m) in hits and hits[id(m)]['source']['human']
 
     for c in corrections:
-        label = correction_label(c)
         if c['type'] == 'false_positive':
             bounds = c['original']
             if not bounds:
@@ -215,24 +215,24 @@ def resolve_corrections(corrections, markers):
                 stale += 1
         for m, action in targets:
             if c['human'] or not ruled_by_person(m):
-                hits[id(m)] = {'marker': m, 'label': label, 'action': action, 'source': c}
+                hits[id(m)] = {'marker': m, 'action': action, 'source': c}
     for c, targets in rejections:
-        if targets and not any(hits[id(m)]['source'] is c for m in targets):
+        if targets and all(hits[id(m)]['source']['type'] != 'false_positive'
+                           for m in targets):
             continue
         clipped = [m for m in markers
                    if m.get('was_cut', True) and clip(m, c['original'])]
         for m in clipped:
             if not ruled_by_person(m):
-                hits[id(m)] = {'marker': m, 'label': correction_label(c),
-                               'action': 'block', 'source': c}
+                hits[id(m)] = {'marker': m, 'action': 'block', 'source': c}
         if not targets and not clipped:
             stale += 1
     return list(hits.values()), stale
 
 
-def classify_window(labels):
-    """(tier, reviewed, corrected) from the correction labels touching a window."""
-    human = {label for label in labels if not label.startswith('auto_')}
+def classify_window(hits):
+    """(tier, reviewed, corrected) from the corrections touching a window."""
+    human = {correction_label(h['source']) for h in hits if h['source']['human']}
     if human - {'false_positive'}:
         tier = 'human_verified'
     elif human:
@@ -378,8 +378,8 @@ def main():
         with out_path.open('w', encoding='utf-8') as f:
             for idx, window in kept:
                 window_hits = [h for h in hits if clip(h['marker'], window)]
-                window_labels = sorted({h['label'] for h in window_hits})
-                tier, reviewed, corrected = classify_window(window_labels)
+                window_labels = sorted({correction_label(h['source']) for h in window_hits})
+                tier, reviewed, corrected = classify_window(window_hits)
                 provenance = {
                     'reviewed': reviewed,
                     'corrected': corrected,
@@ -451,7 +451,7 @@ def main():
     print(f"ad spans: {stats['ads']}")
     print(f"tiers: {format_counts(tiers)}")
     print(f"corrections on windows: {format_counts(labels)}")
-    print(f"stale corrections (touch no marker): {stats['stale_corrections']}")
+    print(f"stale corrections (no marker matched): {stats['stale_corrections']}")
     print(f"corrections on ambiguous episode ids: {stats['ambiguous_id_corrections']}")
     print(f"window config: {win_size:.0f}s size / {win_overlap:.0f}s overlap")
     print(f"system prompt: {system_ref}")
