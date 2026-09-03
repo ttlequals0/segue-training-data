@@ -39,6 +39,15 @@ Copy the output directory to the GPU host.
 
 ## 4. Serve with vLLM
 
+This section describes the phase 1 setup: a merged 4B on a 16 GB card with two
+GPUs present. For the current checkpoint see `training.md`, and note three
+differences measured on a DGX Spark. Serve the adapter with `--enable-lora`
+rather than a merged model, since merging is not equivalent on this
+architecture. Set `--gpu-memory-utilization` near 0.45 rather than 0.90,
+because unified memory is host RAM and 0.90 of it reaches the kernel OOM
+killer. And a single-GPU host has no device to pin, so the `device_ids` entry
+below does not apply.
+
 Docker compose, GPU pinned, model directory mounted at `/model`:
 
 ```yaml

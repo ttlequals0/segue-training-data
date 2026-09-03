@@ -77,8 +77,67 @@ directly, so adapter-only serving is a deployment path rather than a
 workaround. A merged model published for this architecture needs its own eval
 and should not be described as the same model.
 
+## Benchmark corpus
+
+Scored through MinusPod's harness on the 14 episode corpus, 12 ad-bearing and
+2 no-ad controls, one trial at temperature 0, against the frozen
+`prompts/2026-08.txt` snapshot. The adapter was served by vLLM 0.28.0 with
+`--enable-lora`, not merged.
+
+| Metric | Value |
+|---|---|
+| F0.5 | 0.735, 95% CI +/-0.114 |
+| Precision / Recall | 0.719 / 0.854 |
+| F1 | 0.768 |
+| TP / FP / FN | 41 / 19 / 6 |
+| JSON compliance | 0.9968, 169 of 171 direct arrays |
+| No-ad controls | PASS, PASS |
+| Latency p50 / p95 | 1.90s / 30.18s |
+| Calls | 171 of 171, no errors |
+
+**Band B against the published roster**, whose A floor is 0.776 and B floor
+0.730. The harness's own report labels this tier A, which is an artifact of
+scoring a single model: tiers are computed against the leader of whatever
+roster ran, so a lone model is always its own leader.
+
+**The failure mode inverted.** Phase 1 was precision 0.738 against recall
+0.592, and its problem was missing ads. This run is precision 0.719 against
+recall 0.854, with 19 false positives against 6 misses. It now finds almost
+everything and over-cuts. Since F0.5 weights precision double, over-detection
+costs more than the recall gain earns, which is most of why 0.735 is not
+higher.
+
+That direction is consistent with the training labels rather than the model:
+20 of the 71 training spans exceed 180 seconds against a prompt that says a
+break runs 60 to 120, inherited from MinusPod's older same-sponsor merge rule.
+A model taught that ad spans are long and inclusive will over-extend and
+over-claim.
+
+**Both no-ad controls passed**, which is the reassuring counterpart to the
+held-out split, where the tuned model false-positived on 3 of 24 clean
+windows.
+
+**JSON compliance is 0.9968, not 1.00.** 169 of 171 responses were direct
+arrays, one arrived in a markdown code block, and one as a truncated single
+object. The report rounds it to 1.00. All 171 calls used prompt injection
+rather than a native JSON mode, because vLLM's `json_object` grammar forces an
+object and would fail every array answer, so this row carries the
+prompt-inject caveat rather than the native one.
+
 ## What this run does not answer
 
-The validation split cannot separate 0.783, 0.798, and 0.840. Distinguishing
-them needs the benchmark corpus, which is the same corpus the published table
-uses and is large enough for the paired test the tiering depends on.
+The benchmark's 0.735 and the held-out split's 0.840 are not comparable and
+neither supersedes the other. Different corpora, different episodes, different
+prompt snapshot. The split says this checkpoint beats its own base on unseen
+shows; the corpus says where it sits against the published roster.
+
+What is still missing is the base and merged models on the corpus. Without
+those rows there is no corpus-level answer to the question the held-out split
+raised, which is whether the fine-tune beats the untuned 9B by more than
+noise. That is two more serving runs and is the next measurement worth
+spending GPU time on.
+
+Phase 1's 0.686 is also not a fair comparison. That row predates the scorer's
+per-break canonicalization, which raised scores across the roster, so the gap
+between 0.686 and 0.735 mixes a model change with a scoring change and cannot
+be attributed to either.

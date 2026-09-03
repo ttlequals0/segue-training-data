@@ -173,10 +173,25 @@ in rounding the adapter into bf16 weights rather than applying it to
 activations, and it is measurable in the scores. The adapter is the artifact
 of record; a merged model needs its own eval.
 
+On the benchmark corpus, served as an adapter through vLLM: F0.5 0.735 with a
+95 percent interval of plus or minus 0.114, precision 0.719 against recall
+0.854, both no-ad controls passed, 171 of 171 calls clean. That is band B
+against the published roster, whose A floor is 0.776.
+
+The failure mode inverted between phases. Phase 1 missed ads, at precision
+0.738 against recall 0.592. This checkpoint finds them and over-cuts, 19 false
+positives against 6 misses, and since F0.5 weights precision double that is
+what holds the score down. The direction points at the labels: 20 of 71
+training spans run past 180 seconds against a prompt that says a break is 60
+to 120, inherited from MinusPod's older same-sponsor merge rule.
+
 Next up:
 
-- Run the benchmark corpus against the adapter. The held-out split cannot
-  separate 0.783 from 0.840, and the corpus is what the published table uses.
+- Score the untuned base and the merged model on the same corpus. Without
+  those rows there is no corpus-level evidence that the fine-tune beats the
+  base by more than noise, which is the open question from the held-out split.
+- Fix the labels before training again. Re-extraction under MinusPod's
+  corrected merge rule is the cheaper half of that.
 - Phase 2: more data and longer training. The failure is entirely recall
   (0.738 precision against 0.592 recall), concentrated in short ads, 0.25 at
   under 30 seconds, and post-roll ads at 0.36. The model merges adjacent
