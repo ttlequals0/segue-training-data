@@ -214,9 +214,22 @@ roughly two points.
 Writes the PEFT adapter and a merged BF16 model, checksums both, then gates on
 equivalence: greedy generations from base-plus-adapter and from the reloaded
 merged model must be token-identical on held-out fixtures. A mismatch exits
-non-zero and the export is not publishable. BF16 merge rounding can
-legitimately flip a token; if that happens, investigate the precision rather
-than forcing past the gate.
+non-zero and the export is not publishable.
+
+On Qwen3.5-9B that gate fails, and the failure is real rather than a
+threshold being too tight. Measured: 5 of 8 fixtures matched, maximum logit
+difference 23.5 against a mean of 0.05. Merging in fp32 and casting to bf16
+on save changes nothing, because the difference is in storage rather than
+arithmetic: a merged model computes `round_bf16(W + BA*scale) * x` while the
+adapter path computes `W*x + (B(A*x))*scale`, never rounding the adapter into
+a weight. Scoring both confirmed a behavioral difference, F0.5 0.7983 merged
+against 0.8403 with the adapter.
+
+So on this architecture the adapter is the artifact of record, and vLLM serves
+LoRA adapters directly. If you publish a merged model, score it separately and
+do not describe it as the same model. `--merge-dtype float32` exists to let
+you re-test that conclusion on other models; it needs about 34 GB for the base
+during the merge.
 
 ## Recording a run
 

@@ -160,10 +160,54 @@ transformers rejects. Unified memory made the first of those a host-level OOM
 rather than a catchable error, so both preflight and the trainer now cap the
 allocator.
 
-Next up:
+Scored on the held-out split, 47 windows and 23 truth spans: the untuned base
+reaches F0.5 0.783 at 97.9 percent JSON compliance, the adapter 0.840 at 100
+percent, the merged model 0.798 at 100 percent. Full numbers and analysis in
+`runs/r2-results.md`.
 
-- Score `r2` with `eval_generation.py` and export it through the equivalence
-  gate, then record the run in `runs/`.
+Two findings from that. The base model is far stronger than phase 1's framing
+assumed, so the fine-tune's accuracy gain is two spans out of 23, inside the
+noise, while its compliance gain is outside it. And merging is not equivalent
+on this architecture: the difference survives an fp32 merge because it lives
+in rounding the adapter into bf16 weights rather than applying it to
+activations, and it is measurable in the scores. The adapter is the artifact
+of record; a merged model needs its own eval.
+
+On the benchmark corpus, served as an adapter through vLLM: F0.5 0.735 with a
+95 percent interval of plus or minus 0.114, precision 0.719 against recall
+0.854, both no-ad controls passed, 171 of 171 calls clean. That is band B
+against the published roster, whose A floor is 0.776.
+
+The untuned base scores exactly the same, 0.735, on the same corpus with the
+same configuration. The whole difference is one true positive bought with one
+false positive. The adapter is genuinely applied, changing 25 of 171 stored
+answers, and none of that reaches the score.
+
+So the honest position is that fine-tuning Qwen3.5-9B on 153 examples buys
+nothing measurable on this corpus. That does not make the work worthless, but
+it does relocate the value: the finding is that an open-weight 9B, untuned,
+already scores band B against the published roster on this task. Replacing the
+hosted model may not require a fine-tune at all.
+
+Both models over-cut, 18 to 19 false positives against 6 to 7 misses, which
+inverts phase 1's problem of missing ads. An earlier version of this document
+blamed the training labels for that, since 20 of 71 spans exceed 180 seconds
+against a prompt that says 60 to 120. The base row disproves it: a model that
+never saw those labels over-detects the same way. The cause is in the prompt,
+the scoring, or the corpus annotations. The long spans remain worth fixing on
+their own merits and are not the explanation here.
+
+Next up, with the premise changed:
+
+- Decide what the fine-tune is for. If the untuned 9B is the deployable
+  model, the remaining questions are serving cost and whether a smaller model
+  fine-tuned can match it, which is where a fine-tune would actually pay.
+- Run both models in one roster if a formal significance verdict is wanted.
+  Separate runs cannot be paired, so the tiering's per-episode t-test never
+  compared them.
+- Phase 2's data expansion needs a hypothesis it can falsify. More of the same
+  labels is not obviously the answer when 153 of them moved the score by
+  nothing.
 - Phase 2: more data and longer training. The failure is entirely recall
   (0.738 precision against 0.592 recall), concentrated in short ads, 0.25 at
   under 30 seconds, and post-roll ads at 0.36. The model merges adjacent
