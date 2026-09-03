@@ -63,7 +63,9 @@ trimmed to the pass-2 span. Only 136 confirms are a person's decision, and
 | Auto-approved, trimmed | 371 | 371 |
 
 So human boundary supervision on episodes with a transcript is 23 boundary
-adjustments, 5 trimmed confirms, and 3 creates. The 371 auto-approved trims
+adjustments, 5 trimmed confirms, and 3 creates, and the extractor can emit
+18 of the adjustments and the 5 trims: the 3 creates and 4 of the
+adjustments sit on markers with no category. The 371 auto-approved trims
 (mean total edge shift 21.8 seconds, median 21.6) are pass-2 output, the same
 detector this project is trying to replace, and stay `machine_accepted`.
 They are tagged in provenance so they can be ablated on their own. The 83
@@ -166,10 +168,16 @@ Provenance already has the vocabulary; nothing new is needed.
 - `human_verified`: the window contains a span with a `confirm` or `create`
   correction.
 - `hard_negative`: the window contains a span with a `false_positive`
-  correction whose marker is no longer cut. Marker state alone cannot
-  identify these: rejected markers sit in six different
-  (decision, review, source) combinations in the database, so the join is
-  by `original_bounds` within 0.5 seconds of a marker.
+  correction. Marker state alone cannot identify these: rejected markers sit
+  in six different (decision, review, source) combinations in the database,
+  so the join is by `original_bounds` within 0.5 seconds of a marker. When
+  the rejected span is still cut, or a re-detected cut marker covers at
+  least half of it, that marker is dropped from the completion and recorded
+  in `dropped_spans` with rule `rejected_but_cut`.
+- Contradictions block the window. A human confirm, create, or adjustment
+  whose span is not cut, or an adjustment the recut has not applied yet
+  (the marker still sits at `original_bounds`), marks the marker blocking so
+  the windows it touches are skipped like pending ones.
 - `human_verified` also covers `boundary_adjustment` and trimmed `confirm`
   windows, with the shift recorded in provenance so an ablation can isolate
   them.
@@ -183,12 +191,13 @@ tier.
 ### Result
 
 Extractor 0.2.0 over the same database copy, `--limit 0`: 740 episodes,
-9036 windows (79% empty), 1579 windows skipped for a pending or
-uncategorized marker, 21 episodes with every window skipped. Tiers:
-`human_verified` 66, `hard_negative` 202, `machine_accepted` 8768. 38
-corrections matched no marker and were ignored. Three windows had a
-rejected span that was still cut; those spans were dropped and recorded
-under `dropped_spans` with rule `rejected_but_cut`.
+9036 windows (79% empty), 1579 windows skipped for a pending,
+uncategorized, or contradicted marker, 21 episodes with every window
+skipped. Tiers: `human_verified` 66, `hard_negative` 202,
+`machine_accepted` 8768. 34 corrections on emitted episodes matched no
+marker and were ignored. Seven cut markers covered a span a person had
+rejected; they were dropped and recorded under `dropped_spans` with rule
+`rejected_but_cut`, which touches 10 windows.
 
 ### Holdout
 

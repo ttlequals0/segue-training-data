@@ -28,8 +28,9 @@ WINDOW_SIZE_DEFAULT = 600.0
 WINDOW_OVERLAP_DEFAULT = 180.0
 MIN_AD_OVERLAP_SECONDS = 1.0
 BOUNDS_TOLERANCE_SECONDS = 0.5
+# Coverage at which a cut marker counts as the same span a person rejected.
+REJECTED_COVERAGE = 0.5
 AUTO_APPROVED_PREFIX = 'auto-approved'  # written by MinusPod process_episode on pass-2 corroboration
-CORRECTED_LABELS = {'false_positive', 'boundary_adjustment', 'create', 'confirm_trimmed'}
 
 
 def read_window_settings(conn):
@@ -103,9 +104,8 @@ def clip(span, window):
 def partition_markers(markers):
     """Split into (cut, blocking); None when a marker has no bounds.
 
-    Blocking markers are pending review (same rule as MinusPod's
-    config.is_pending_review, inlined so tests need no MinusPod checkout) or
-    cut without a category; windows they touch are skipped, not emitted short."""
+    Blocking markers are pending review (MinusPod's is_pending_review rule,
+    inlined) or cut without a category; windows they touch are skipped."""
     cut, blocking = [], []
     for m in markers:
         if 'start' not in m or 'end' not in m:
@@ -141,7 +141,8 @@ def fetch_corrections(conn):
             'type': row['correction_type'],
             'original': parse_bounds(row['original_bounds']),
             'corrected': parse_bounds(row['corrected_bounds']),
-            'human': not (row['text_snippet'] or '').startswith(AUTO_APPROVED_PREFIX),
+            'human': not (row['correction_type'] == 'confirm' and
+                          (row['text_snippet'] or '').startswith(AUTO_APPROVED_PREFIX)),
         })
     return by_episode
 
@@ -151,32 +152,60 @@ def same_span(bounds, marker):
             and abs(bounds['end'] - float(marker['end'])) <= BOUNDS_TOLERANCE_SECONDS)
 
 
-def resolve_corrections(corrections, markers):
-    """Attach each correction to the marker it targets.
+def matching(bounds, markers):
+    return [m for m in markers if bounds and same_span(bounds, m)]
 
-    Returns (resolved, stale). Labels carry an auto_ prefix when the
-    correction was not a human decision. A false positive whose marker is
-    still cut contradicts the labels; it is flagged so the marker is dropped."""
-    resolved, stale = [], 0
+
+def covered_by(span, marker):
+    s = max(float(span['start']), float(marker['start']))
+    e = min(float(span['end']), float(marker['end']))
+    length = float(marker['end']) - float(marker['start'])
+    return length > 0 and (e - s) / length >= REJECTED_COVERAGE
+
+
+def resolve_corrections(corrections, markers):
+    """Attach each correction to the markers it targets.
+
+    Returns (hits, stale). Each hit carries an action for its marker: keep
+    (labels agree), drop (a rejected span is still cut) or block (a human
+    positive whose span is not cut, or an adjustment the recut has not
+    applied yet). Labels get an auto_ prefix for pass-2 auto-approvals."""
+    hits, stale = [], 0
     for c in corrections:
-        if c['type'] == 'false_positive':
-            target = c['original']
-        else:
-            target = c['corrected'] or c['original']
-        match = next((m for m in markers if same_span(target, m)), None) if target else None
-        if match is None:
-            stale += 1
-            continue
         label = c['type']
-        if c['type'] == 'confirm' and c['corrected'] and c['corrected'] != c['original']:
+        if c['type'] == 'confirm' and c['corrected']:
             label = 'confirm_trimmed'
         if not c['human']:
             label = 'auto_' + label
-        resolved.append({
-            'marker': match, 'label': label,
-            'drop': c['type'] == 'false_positive' and match.get('was_cut', True),
-        })
-    return resolved, stale
+        if c['type'] == 'false_positive':
+            rejected = matching(c['original'], markers)
+            if not rejected:
+                stale += 1
+                continue
+            for m in rejected:
+                hits.append({'marker': m, 'label': label,
+                             'action': 'drop' if m.get('was_cut', True) else 'keep'})
+            # A re-detected cut marker covering the rejected span is the same ad.
+            hits.extend({'marker': m, 'label': label, 'action': 'drop'}
+                        for m in markers if m.get('was_cut', True)
+                        and not any(m is r for r in rejected)
+                        and any(covered_by(r, m) for r in rejected))
+            continue
+        action = 'keep'
+        matches = matching(c['corrected'] or c['original'], markers)
+        if not matches and c['corrected']:
+            matches = matching(c['original'], markers)
+            action = 'block'
+        if not matches:
+            stale += 1
+            continue
+        cut = [m for m in matches if m.get('was_cut', True)]
+        if cut:
+            matches = cut
+        else:
+            action = 'block'
+        hits.extend({'marker': m, 'label': label, 'action': action} for m in matches)
+    return hits, stale
 
 
 def classify_window(labels):
@@ -188,7 +217,7 @@ def classify_window(labels):
         tier = 'hard_negative'
     else:
         tier = 'machine_accepted'
-    return tier, bool(human), bool(human & CORRECTED_LABELS)
+    return tier, bool(human), bool(human - {'confirm'})
 
 
 def fetch_episodes(conn):
@@ -204,6 +233,7 @@ def fetch_episodes(conn):
         JOIN podcasts p ON p.id = e.podcast_id
         JOIN episode_details ed ON ed.episode_id = e.id
         WHERE e.status = 'processed'
+          AND e.pending_recut_at IS NULL
           AND ed.original_segments_json IS NOT NULL
           AND ed.original_segments_json NOT IN ('', 'null', '[]')
         ORDER BY p.slug, e.processed_at DESC
@@ -271,6 +301,10 @@ def main():
         eligible.append(row)
 
     corrections = fetch_corrections(conn)
+    # pattern_corrections has no feed column, so a shared episode_id is ambiguous.
+    id_counts = defaultdict(int)
+    for row in rows:
+        id_counts[row['episode_id']] += 1
     stats = defaultdict(int)
     tiers = defaultdict(int)
     labels = defaultdict(int)
@@ -282,11 +316,14 @@ def main():
             skipped['unusable_markers'] += 1
             continue
         cut, blocking = parts
-        resolved, stale = resolve_corrections(
-            corrections.get(row['episode_id'], []), all_markers)
-        stats['stale_corrections'] += stale
-        dropped = {id(h['marker']) for h in resolved if h['drop']}
+        episode_corrections = corrections.get(row['episode_id'], [])
+        if id_counts[row['episode_id']] > 1:
+            stats['ambiguous_id_corrections'] += len(episode_corrections)
+            episode_corrections = []
+        hits, stale = resolve_corrections(episode_corrections, all_markers)
+        dropped = {id(h['marker']) for h in hits if h['action'] == 'drop'}
         cut = [m for m in cut if id(m) not in dropped]
+        blocking += [h['marker'] for h in hits if h['action'] == 'block']
         segments = json.loads(row['original_segments_json'])
         windows = create_windows(segments, window_size=win_size, overlap=win_overlap)
         if not windows:
@@ -298,6 +335,7 @@ def main():
         if not kept:
             skipped['all_windows_blocked'] += 1
             continue
+        stats['stale_corrections'] += stale
 
         description_section = build_description_section(
             row['podcast_description'], row['episode_description'])
@@ -306,8 +344,8 @@ def main():
 
         with out_path.open('w', encoding='utf-8') as f:
             for idx, window in kept:
-                hits = [h for h in resolved if clip(h['marker'], window)]
-                window_labels = sorted({h['label'] for h in hits})
+                window_hits = [h for h in hits if clip(h['marker'], window)]
+                window_labels = sorted({h['label'] for h in window_hits})
                 tier, reviewed, corrected = classify_window(window_labels)
                 provenance = {
                     'reviewed': reviewed,
@@ -325,7 +363,7 @@ def main():
                      'category': h['marker']['category'],
                      'reason': str(h['marker'].get('reason', '')),
                      'rule': 'rejected_but_cut'}
-                    for h in hits if h['drop']]
+                    for h in window_hits if h['action'] == 'drop']
                 if dropped_spans:
                     provenance['dropped_spans'] = dropped_spans
                 for label in window_labels:
@@ -381,6 +419,7 @@ def main():
     print(f"tiers: {format_counts(tiers)}")
     print(f"corrections on windows: {format_counts(labels)}")
     print(f"stale corrections (no matching marker): {stats['stale_corrections']}")
+    print(f"corrections on ambiguous episode ids: {stats['ambiguous_id_corrections']}")
     print(f"window config: {win_size:.0f}s size / {win_overlap:.0f}s overlap")
     print(f"system prompt: {system_ref}")
     for reason, count in sorted(skipped.items()):

@@ -32,31 +32,62 @@ def test_partition_markers_rejects_missing_bounds():
 
 def test_resolve_matches_within_tolerance_and_counts_stale():
     markers = [marker(10.0, 40.0), marker(100.0, 130.0, was_cut=False)]
-    resolved, stale = resolve_corrections([
+    hits, stale = resolve_corrections([
         correction('confirm', bounds(10.3, 39.8)),
         correction('false_positive', bounds(100, 130)),
         correction('false_positive', bounds(500, 530)),
     ], markers)
     assert stale == 1
-    assert [r['label'] for r in resolved] == ['confirm', 'false_positive']
-    assert not any(r['drop'] for r in resolved)
+    assert [(h['label'], h['action']) for h in hits] == [
+        ('confirm', 'keep'), ('false_positive', 'keep')]
 
 
 def test_resolve_labels_trims_and_auto_approvals():
     markers = [marker(10.0, 35.0)]
-    resolved, _ = resolve_corrections([
+    hits, _ = resolve_corrections([
         correction('confirm', bounds(10, 40), bounds(10, 35), human=False),
-        correction('confirm', bounds(10, 35), bounds(10, 35)),
+        correction('confirm', bounds(10, 35)),
         correction('create', None, bounds(10, 35)),
     ], markers)
-    assert [r['label'] for r in resolved] == [
+    assert [h['label'] for h in hits] == [
         'auto_confirm_trimmed', 'confirm', 'create']
 
 
-def test_resolve_flags_rejected_but_still_cut():
-    resolved, _ = resolve_corrections(
+def test_resolve_drops_rejected_span_that_is_still_cut():
+    hits, _ = resolve_corrections(
         [correction('false_positive', bounds(0, 20))], [marker(0, 20)])
-    assert resolved[0]['drop'] is True
+    assert [h['action'] for h in hits] == ['drop']
+
+
+def test_resolve_drops_redetected_marker_covering_rejected_span():
+    rejected = marker(714.6, 912.2, was_cut=False)
+    redetected = marker(737.1, 912.2)
+    elsewhere = marker(1000, 1100)
+    hits, _ = resolve_corrections(
+        [correction('false_positive', bounds(714.6, 912.2))],
+        [rejected, redetected, elsewhere])
+    assert [(h['marker'] is redetected, h['action']) for h in hits] == [
+        (False, 'keep'), (True, 'drop')]
+
+
+def test_resolve_prefers_cut_twin_and_blocks_uncut_positive():
+    cut = marker(0, 20)
+    twin = marker(0, 20, was_cut=False)
+    hits, _ = resolve_corrections(
+        [correction('confirm', bounds(0, 20))], [twin, cut])
+    assert [(h['marker'] is cut, h['action']) for h in hits] == [(True, 'keep')]
+    hits, _ = resolve_corrections(
+        [correction('confirm', bounds(0, 20))], [twin])
+    assert [h['action'] for h in hits] == ['block']
+
+
+def test_resolve_blocks_unapplied_adjustment():
+    hits, stale = resolve_corrections(
+        [correction('boundary_adjustment', bounds(2309.6, 2415.6),
+                    bounds(2309.6, 2400.0))],
+        [marker(2309.6, 2415.6)])
+    assert stale == 0
+    assert [h['action'] for h in hits] == ['block']
 
 
 def test_classify_window_precedence():
@@ -65,3 +96,4 @@ def test_classify_window_precedence():
     assert classify_window(['auto_confirm', 'false_positive']) == ('hard_negative', True, True)
     assert classify_window(['boundary_adjustment', 'false_positive']) == ('human_verified', True, True)
     assert classify_window(['confirm']) == ('human_verified', True, False)
+    assert classify_window(['confirm_trimmed']) == ('human_verified', True, True)
