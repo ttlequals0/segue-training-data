@@ -1,0 +1,17 @@
+{
+  "n": 47,
+  "json_compliance": 0.9787,
+  "precision": 0.7826,
+  "recall": 0.7826,
+  "f05": 0.7826,
+  "tp": 18,
+  "fp": 5,
+  "fn": 5,
+  "noad_windows": 24,
+  "noad_fp": 2,
+  "start_mae": 10.11,
+  "end_mae": 9.66,
+  "source": "base",
+  "tier_band": "A",
+  "tier_band_source": "published report"
+}
