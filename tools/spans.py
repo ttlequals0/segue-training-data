@@ -15,7 +15,7 @@ def merge_gaps(spans, gap=GAP_SECONDS, barriers=()):
     for s in ordered[1:]:
         cur = out[-1]
         if (s["start"] - cur["end"] < gap
-                and not any(min(b[1], s["start"]) > max(b[0], cur["end"]) for b in barriers)):
+                and not any(overlap(b, (cur["end"], s["start"])) for b in barriers)):
             if s["end"] > cur["end"]:
                 cur["end"] = s["end"]
                 if "end_text" in s:
@@ -26,12 +26,16 @@ def merge_gaps(spans, gap=GAP_SECONDS, barriers=()):
     return out
 
 
+def overlap(a, b):
+    return max(0.0, min(a[1], b[1]) - max(a[0], b[0]))
+
+
 def iou(a, b):
-    overlap = max(0.0, min(a[1], b[1]) - max(a[0], b[0]))
-    if overlap == 0:
+    shared = overlap(a, b)
+    if shared == 0:
         return 0.0
-    union = (a[1] - a[0]) + (b[1] - b[0]) - overlap
-    return overlap / union if union > 0 else 0.0
+    union = (a[1] - a[0]) + (b[1] - b[0]) - shared
+    return shared / union if union > 0 else 0.0
 
 
 def match_spans(predictions, truths, threshold=0.5):

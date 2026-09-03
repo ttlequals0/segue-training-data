@@ -23,6 +23,7 @@ from common import (  # noqa: E402
     EXAMPLES_DIR, EXTRACTOR_VERSION, load_excluded_feeds, load_holdout,
     setup_minuspod_path, store_prompt,
 )
+from spans import overlap  # noqa: E402
 
 WINDOW_SIZE_DEFAULT = 600.0
 WINDOW_OVERLAP_DEFAULT = 180.0
@@ -156,19 +157,15 @@ def fetch_corrections(conn):
     return by_episode
 
 
-def overlap(a, b):
-    return max(0.0, min(float(a['end']), float(b['end']))
-               - max(float(a['start']), float(b['start'])))
-
-
 def same_span(bounds, marker):
     return (abs(bounds['start'] - float(marker['start'])) <= BOUNDS_TOLERANCE_SECONDS
             and abs(bounds['end'] - float(marker['end'])) <= BOUNDS_TOLERANCE_SECONDS)
 
 
 def covers(bounds, marker):
-    length = float(marker['end']) - float(marker['start'])
-    return length > 0 and overlap(bounds, marker) / length >= MATCH_COVERAGE
+    start, end = float(marker['start']), float(marker['end'])
+    shared = overlap((bounds['start'], bounds['end']), (start, end))
+    return end > start and shared / (end - start) >= MATCH_COVERAGE
 
 
 def targeted(bounds, markers, relation):
@@ -190,15 +187,14 @@ def resolve_corrections(corrections, markers):
             label = 'auto_' + label
         if c['type'] == 'false_positive':
             bounds = c['original']
-            targets = []
-            for m in (markers if bounds else []):
-                was_cut = m.get('was_cut', True)
-                if not was_cut and same_span(bounds, m):
-                    targets.append((m, 'keep'))
-                elif was_cut and covers(bounds, m):
-                    targets.append((m, 'drop'))
-            if bounds:
-                rejections.append((bounds, label, [m for m, _ in targets]))
+            if not bounds:
+                stale += 1
+                continue
+            targets = ([(m, 'keep') for m in targeted(bounds, markers, same_span)
+                        if not m.get('was_cut', True)]
+                       + [(m, 'drop') for m in targeted(bounds, markers, covers)
+                          if m.get('was_cut', True)])
+            rejections.append((bounds, [m for m, _ in targets]))
         else:
             target = c['corrected'] or c['original']
             exact = targeted(target, markers, same_span)
@@ -210,24 +206,19 @@ def resolve_corrections(corrections, markers):
                 targets = [(m, 'block') for m in exact
                            or targeted(target, markers, covers)
                            or targeted(c['original'], markers, covers)]
-        if not targets:
-            stale += 1
-            continue
+            if not targets:
+                stale += 1
         for m, action in targets:
             hits[id(m)] = {'marker': m, 'label': label, 'action': action}
-    for bounds, label, targets in rejections:
-        if any(hits[id(m)]['label'] != label for m in targets):
+    for bounds, targets in rejections:
+        if any(hits[id(m)]['label'] != 'false_positive' for m in targets):
             continue
-        blocked = False
-        for m in markers:
-            ruled = hits.get(id(m))
-            if ruled and not ruled['label'].startswith('auto_'):
-                continue
-            if m.get('was_cut', True) and clip(m, bounds):
-                hits[id(m)] = {'marker': m, 'label': label, 'action': 'block'}
-                blocked = True
-        if blocked and not targets:
-            stale -= 1
+        blocked = [m for m in markers
+                   if (id(m) not in hits or hits[id(m)]['label'].startswith('auto_'))
+                   and m.get('was_cut', True) and clip(m, bounds)]
+        for m in blocked:
+            hits[id(m)] = {'marker': m, 'label': 'false_positive', 'action': 'block'}
+        stale += not (targets or blocked)
     return list(hits.values()), stale
 
 
