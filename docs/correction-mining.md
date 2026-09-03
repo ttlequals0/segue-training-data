@@ -206,8 +206,9 @@ Extractor 0.2.0 over the same database copy, `--limit 0`: 738 episodes,
 8659 windows (80% empty), 1956 windows skipped for an undecided,
 uncategorized, or contradicted marker, 23 episodes with every window
 skipped. Tiers: `human_verified` 62, `hard_negative` 145,
-`machine_accepted` 8452. 24 human corrections on eligible episodes matched
-no marker and were ignored. Five cut markers were covered by a span a
+`machine_accepted` 8452. 25 human corrections on eligible episodes matched
+no marker; one of them still blocks a cut neighbour it clips, the rest are
+ignored. Five cut markers were covered by a span a
 person had rejected; they were dropped and recorded under `dropped_spans`
 with rule `rejected_but_cut`, 9 entries across 8 windows because windows
 overlap.

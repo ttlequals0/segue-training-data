@@ -113,11 +113,11 @@ def partition_markers(markers):
     for m in markers:
         if 'start' not in m or 'end' not in m:
             return None
-        gated = ((m.get('validation') or {}).get('decision') == 'REVIEW'
-                 and not m.get('reviewer_verdict'))
         if m.get('was_cut', True):
             (cut if m.get('category') else blocking).append(m)
-        elif m.get('held_for_review') or m.get('action_applied') == 'keep' or gated:
+        elif (m.get('held_for_review') or m.get('action_applied') == 'keep'
+              or ((m.get('validation') or {}).get('decision') == 'REVIEW'
+                  and not m.get('reviewer_verdict'))):
             undecided.append(m)
     return cut, blocking, undecided
 
@@ -177,9 +177,9 @@ def targeted(bounds, markers, relation):
 def resolve_corrections(corrections, markers):
     """(hits, stale): each hit is a marker with a keep, drop or block action.
 
-    Newest decision on a marker wins, but a rejection only blocks a
-    neighbouring cut marker that no correction has ruled on. Auto-approvals
-    only ever keep."""
+    Newest decision on a marker wins. Auto-approvals only ever keep. After
+    all decisions, a rejection blocks any cut marker it clips that nobody
+    ruled on."""
     hits, stale = {}, 0
     for c in corrections:
         label = c['type']
@@ -188,15 +188,17 @@ def resolve_corrections(corrections, markers):
         if not c['human']:
             label = 'auto_' + label
         if c['type'] == 'false_positive':
+            bounds = c['original']
+            if not bounds:
+                stale += 1
+                continue
             targets = []
-            for m in (markers if c['original'] else []):
-                if not m.get('was_cut', True):
-                    if same_span(c['original'], m):
-                        targets.append((m, 'keep'))
-                elif covers(c['original'], m):
+            for m in markers:
+                was_cut = m.get('was_cut', True)
+                if not was_cut and same_span(bounds, m):
+                    targets.append((m, 'keep'))
+                elif was_cut and covers(bounds, m):
                     targets.append((m, 'drop'))
-                elif id(m) not in hits and clip(m, c['original']):
-                    targets.append((m, 'block'))
         else:
             target = c['corrected'] or c['original']
             exact = targeted(target, markers, same_span)
@@ -213,6 +215,12 @@ def resolve_corrections(corrections, markers):
             continue
         for m, action in targets:
             hits[id(m)] = {'marker': m, 'label': label, 'action': action}
+    for c in corrections:
+        if c['type'] != 'false_positive' or not c['original']:
+            continue
+        for m in markers:
+            if id(m) not in hits and m.get('was_cut', True) and clip(m, c['original']):
+                hits[id(m)] = {'marker': m, 'label': 'false_positive', 'action': 'block'}
     return list(hits.values()), stale
 
 
@@ -230,13 +238,12 @@ def classify_window(labels):
 
 def fetch_episodes(conn):
     return conn.execute("""
-        SELECT p.slug,
+        SELECT e.id, p.slug,
                COALESCE(p.title_override, p.title, p.slug) AS podcast_name,
                p.description AS podcast_description,
                e.episode_id, e.title AS episode_title,
                e.description AS episode_description,
-               e.processed_at,
-               ed.ad_markers_json, ed.original_segments_json
+               e.processed_at
         FROM episodes e
         JOIN podcasts p ON p.id = e.podcast_id
         JOIN episode_details ed ON ed.episode_id = e.id
@@ -246,6 +253,15 @@ def fetch_episodes(conn):
           AND ed.original_segments_json NOT IN ('', 'null', '[]')
         ORDER BY p.slug, e.processed_at DESC
     """).fetchall()
+
+
+def fetch_details(conn, row_id):
+    """(markers, segments) for one episode; the blobs are too big to hold for all."""
+    row = conn.execute(
+        "SELECT ad_markers_json, original_segments_json FROM episode_details "
+        "WHERE episode_id = ?", (row_id,)).fetchone()
+    return (json.loads(row['ad_markers_json'] or '[]'),
+            json.loads(row['original_segments_json']))
 
 
 def format_counts(counter):
@@ -322,7 +338,7 @@ def main():
     for row in round_robin(eligible):
         if args.limit and stats['episodes'] >= args.limit:
             break
-        all_markers = json.loads(row['ad_markers_json'] or '[]')
+        all_markers, segments = fetch_details(conn, row['id'])
         parts = partition_markers(all_markers)
         if parts is None:
             skipped['unusable_markers'] += 1
@@ -332,12 +348,11 @@ def main():
             corrections.get(row['episode_id'], []), all_markers)
         stats['stale_corrections'] += stale
         action = {id(h['marker']): h['action'] for h in hits}
-        cut = [m for m in cut if action.get(id(m)) != 'drop']
-        blocking = [m for m in blocking if action.get(id(m)) != 'drop']
+        cut, blocking, undecided = (
+            [m for m in bucket if action.get(id(m)) != 'drop'] for bucket in parts)
         blocking += [m for m in undecided if id(m) not in action]
         blocking += [h['marker'] for h in hits if h['action'] == 'block']
         hits = [h for h in hits if h['action'] != 'block']
-        segments = json.loads(row['original_segments_json'])
         windows = create_windows(segments, window_size=win_size, overlap=win_overlap)
         if not windows:
             skipped['no_windows'] += 1
