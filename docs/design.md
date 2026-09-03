@@ -178,20 +178,36 @@ On the benchmark corpus, served as an adapter through vLLM: F0.5 0.735 with a
 0.854, both no-ad controls passed, 171 of 171 calls clean. That is band B
 against the published roster, whose A floor is 0.776.
 
-The failure mode inverted between phases. Phase 1 missed ads, at precision
-0.738 against recall 0.592. This checkpoint finds them and over-cuts, 19 false
-positives against 6 misses, and since F0.5 weights precision double that is
-what holds the score down. The direction points at the labels: 20 of 71
-training spans run past 180 seconds against a prompt that says a break is 60
-to 120, inherited from MinusPod's older same-sponsor merge rule.
+The untuned base scores exactly the same, 0.735, on the same corpus with the
+same configuration. The whole difference is one true positive bought with one
+false positive. The adapter is genuinely applied, changing 25 of 171 stored
+answers, and none of that reaches the score.
 
-Next up:
+So the honest position is that fine-tuning Qwen3.5-9B on 153 examples buys
+nothing measurable on this corpus. That does not make the work worthless, but
+it does relocate the value: the finding is that an open-weight 9B, untuned,
+already scores band B against the published roster on this task. Replacing the
+hosted model may not require a fine-tune at all.
 
-- Score the untuned base and the merged model on the same corpus. Without
-  those rows there is no corpus-level evidence that the fine-tune beats the
-  base by more than noise, which is the open question from the held-out split.
-- Fix the labels before training again. Re-extraction under MinusPod's
-  corrected merge rule is the cheaper half of that.
+Both models over-cut, 18 to 19 false positives against 6 to 7 misses, which
+inverts phase 1's problem of missing ads. An earlier version of this document
+blamed the training labels for that, since 20 of 71 spans exceed 180 seconds
+against a prompt that says 60 to 120. The base row disproves it: a model that
+never saw those labels over-detects the same way. The cause is in the prompt,
+the scoring, or the corpus annotations. The long spans remain worth fixing on
+their own merits and are not the explanation here.
+
+Next up, with the premise changed:
+
+- Decide what the fine-tune is for. If the untuned 9B is the deployable
+  model, the remaining questions are serving cost and whether a smaller model
+  fine-tuned can match it, which is where a fine-tune would actually pay.
+- Run both models in one roster if a formal significance verdict is wanted.
+  Separate runs cannot be paired, so the tiering's per-episode t-test never
+  compared them.
+- Phase 2's data expansion needs a hypothesis it can falsify. More of the same
+  labels is not obviously the answer when 153 of them moved the score by
+  nothing.
 - Phase 2: more data and longer training. The failure is entirely recall
   (0.738 precision against 0.592 recall), concentrated in short ads, 0.25 at
   under 30 seconds, and post-roll ads at 0.36. The model merges adjacent

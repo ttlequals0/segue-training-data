@@ -100,18 +100,37 @@ Scored through MinusPod's harness on the 14 episode corpus, 12 ad-bearing and
 scoring a single model: tiers are computed against the leader of whatever
 roster ran, so a lone model is always its own leader.
 
-**The failure mode inverted.** Phase 1 was precision 0.738 against recall
-0.592, and its problem was missing ads. This run is precision 0.719 against
-recall 0.854, with 19 false positives against 6 misses. It now finds almost
-everything and over-cuts. Since F0.5 weights precision double, over-detection
-costs more than the recall gain earns, which is most of why 0.735 is not
-higher.
+**The untuned base scores exactly the same.** Run on the same corpus, same
+snapshot, same configuration, with the adapter removed:
 
-That direction is consistent with the training labels rather than the model:
-20 of the 71 training spans exceed 180 seconds against a prompt that says a
-break runs 60 to 120, inherited from MinusPod's older same-sponsor merge rule.
-A model taught that ad spans are long and inclusive will over-extend and
-over-claim.
+| Metric | Base | Adapter | Delta |
+|---|---|---|---|
+| F0.5 | 0.735 | 0.735 | 0.000 |
+| 95% CI | +/-0.114 | +/-0.114 | same |
+| Precision / Recall | 0.720 / 0.844 | 0.719 / 0.854 | -0.001 / +0.010 |
+| TP / FP / FN | 40 / 18 / 7 | 41 / 19 / 6 | +1 / +1 / -1 |
+| JSON compliance | 0.9968 | 0.9968 | 0 |
+| No-ad controls | PASS, PASS | PASS, PASS | same |
+
+The entire difference is one true positive bought with one false positive.
+
+The adapter is genuinely applied and genuinely changes the model: comparing
+all 171 stored responses, 146 are byte-identical and 25 differ, with real
+divergence in span boundaries, `end_text`, and reason wording. It changes 15
+percent of the answers and none of the score.
+
+**The failure mode inverted between phases, and it is not our labels.** Phase
+1 missed ads, at precision 0.738 against recall 0.592. Both models here find
+nearly everything and over-cut, 18 to 19 false positives against 6 to 7
+misses. Since F0.5 weights precision double, that over-detection is most of
+why neither reaches higher.
+
+An earlier draft of this document attributed that to the training labels,
+since 20 of the 71 spans exceed 180 seconds against a prompt that says a break
+runs 60 to 120. The base row disproves it: a model that never saw those labels
+over-detects identically. The cause lies in the prompt, the scoring, or the
+corpus annotations, not in what we taught. The long-span problem in the labels
+is still worth fixing, but it is not what is holding this score down.
 
 **Both no-ad controls passed**, which is the reassuring counterpart to the
 held-out split, where the tuned model false-positived on 3 of 24 clean
@@ -131,11 +150,16 @@ neither supersedes the other. Different corpora, different episodes, different
 prompt snapshot. The split says this checkpoint beats its own base on unseen
 shows; the corpus says where it sits against the published roster.
 
-What is still missing is the base and merged models on the corpus. Without
-those rows there is no corpus-level answer to the question the held-out split
-raised, which is whether the fine-tune beats the untuned 9B by more than
-noise. That is two more serving runs and is the next measurement worth
-spending GPU time on.
+The base row is now in and answers the question the split raised: the
+fine-tune does not beat the untuned 9B on this corpus. The merged model has
+still not been scored here, but given the base and adapter tie, its row is
+unlikely to change the conclusion.
+
+One test has not been run. Both rows come from separate single-model rosters,
+so the paired per-episode t-test the tiering depends on never compared them.
+Scoring both in one roster would turn "identical to three decimals" into a
+formal verdict of no separation. The per-episode figures suggest that is what
+it would return.
 
 Phase 1's 0.686 is also not a fair comparison. That row predates the scorer's
 per-break canonicalization, which raised scores across the roster, so the gap
