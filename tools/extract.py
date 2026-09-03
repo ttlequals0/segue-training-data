@@ -181,7 +181,7 @@ def resolve_corrections(corrections, markers):
     hits, stale, rejections = {}, 0, []
 
     def ruled_by_person(m):
-        return id(m) in hits and hits[id(m)]['human']
+        return id(m) in hits and not hits[id(m)]['label'].startswith('auto_')
 
     for c in corrections:
         label = c['type']
@@ -203,29 +203,25 @@ def resolve_corrections(corrections, markers):
             target = c['corrected'] or c['original']
             exact = targeted(target, markers, same_span)
             if any(m.get('was_cut', True) for m in exact):
-                targets = [(m, 'keep') for m in exact
-                           if c['human'] or not ruled_by_person(m)]
-                if not targets:
-                    continue
-            elif not c['human']:
-                continue
-            else:
+                targets = [(m, 'keep') for m in exact]
+            elif c['human']:
                 targets = [(m, 'block') for m in exact
                            or targeted(target, markers, covers)
                            or targeted(c['original'], markers, covers)]
+            else:
+                continue
             if not targets:
                 stale += 1
         for m, action in targets:
-            hits[id(m)] = {'marker': m, 'label': label, 'action': action,
-                           'human': c['human']}
+            if c['human'] or not ruled_by_person(m):
+                hits[id(m)] = {'marker': m, 'label': label, 'action': action}
     for bounds, targets in rejections:
         if targets and all(hits[id(m)]['label'] != 'false_positive' for m in targets):
             continue
         clipped = [m for m in markers if m.get('was_cut', True) and clip(m, bounds)]
         for m in clipped:
             if not ruled_by_person(m):
-                hits[id(m)] = {'marker': m, 'label': 'false_positive',
-                               'action': 'block', 'human': True}
+                hits[id(m)] = {'marker': m, 'label': 'false_positive', 'action': 'block'}
         if not targets and not clipped:
             stale += 1
     return list(hits.values()), stale
