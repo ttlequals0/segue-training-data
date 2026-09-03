@@ -71,5 +71,7 @@ def test_match_spans_threshold():
 
 def test_merge_gaps_barrier_blocks_merge():
     spans = [span(0, 30), span(40, 60)]
-    assert len(merge_gaps(spans, barriers=[span(31, 39)])) == 2
-    assert len(merge_gaps(spans, barriers=[span(70, 80)])) == 1
+    assert len(merge_gaps(spans, barriers=[(31, 39)])) == 2
+    assert len(merge_gaps(spans, barriers=[(70, 80)])) == 1
+    overlapping = [span(0, 30), span(25, 60)]
+    assert merge_gaps(overlapping, barriers=[(20, 35)]) == [span(0, 60)]

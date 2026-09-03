@@ -79,7 +79,7 @@ def fix_example(ex, keep):
     fixes = list(dict.fromkeys([d['rule'] for d in dropped] + fixes))
     n_before = len(spans)
     # Only a person's rejection makes the audio non-ad; this pass's own drops do not.
-    rejected = [d for d in ex['provenance'].get('dropped_spans', [])
+    rejected = [(d['start'], d['end']) for d in ex['provenance'].get('dropped_spans', [])
                 if d['rule'] == 'rejected_but_cut']
     spans = merge_gaps(spans, GAP_SECONDS, barriers=rejected)
     if len(spans) != n_before:

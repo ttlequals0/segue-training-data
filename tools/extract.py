@@ -115,9 +115,10 @@ def partition_markers(markers):
             return None
         if m.get('was_cut', True):
             (cut if m.get('category') else blocking).append(m)
-        elif (m.get('held_for_review') or m.get('action_applied') == 'keep'
-              or ((m.get('validation') or {}).get('decision') == 'REVIEW'
-                  and not m.get('reviewer_verdict'))):
+            continue
+        gated = ((m.get('validation') or {}).get('decision') == 'REVIEW'
+                 and not m.get('reviewer_verdict'))
+        if m.get('held_for_review') or m.get('action_applied') == 'keep' or gated:
             undecided.append(m)
     return cut, blocking, undecided
 
@@ -178,9 +179,9 @@ def resolve_corrections(corrections, markers):
     """(hits, stale): each hit is a marker with a keep, drop or block action.
 
     Newest decision on a marker wins. Auto-approvals only ever keep. After
-    all decisions, a rejection blocks any cut marker it clips that nobody
-    ruled on."""
-    hits, stale = {}, 0
+    all decisions, a rejection that still stands blocks any cut marker it
+    clips that no person ruled on."""
+    hits, stale, rejections = {}, 0, []
     for c in corrections:
         label = c['type']
         if c['type'] == 'confirm' and c['corrected']:
@@ -189,16 +190,15 @@ def resolve_corrections(corrections, markers):
             label = 'auto_' + label
         if c['type'] == 'false_positive':
             bounds = c['original']
-            if not bounds:
-                stale += 1
-                continue
             targets = []
-            for m in markers:
+            for m in (markers if bounds else []):
                 was_cut = m.get('was_cut', True)
                 if not was_cut and same_span(bounds, m):
                     targets.append((m, 'keep'))
                 elif was_cut and covers(bounds, m):
                     targets.append((m, 'drop'))
+            if bounds:
+                rejections.append((bounds, label, [m for m, _ in targets]))
         else:
             target = c['corrected'] or c['original']
             exact = targeted(target, markers, same_span)
@@ -215,12 +215,19 @@ def resolve_corrections(corrections, markers):
             continue
         for m, action in targets:
             hits[id(m)] = {'marker': m, 'label': label, 'action': action}
-    for c in corrections:
-        if c['type'] != 'false_positive' or not c['original']:
+    for bounds, label, targets in rejections:
+        if any(hits[id(m)]['label'] != label for m in targets):
             continue
+        blocked = False
         for m in markers:
-            if id(m) not in hits and m.get('was_cut', True) and clip(m, c['original']):
-                hits[id(m)] = {'marker': m, 'label': 'false_positive', 'action': 'block'}
+            ruled = hits.get(id(m))
+            if ruled and not ruled['label'].startswith('auto_'):
+                continue
+            if m.get('was_cut', True) and clip(m, bounds):
+                hits[id(m)] = {'marker': m, 'label': label, 'action': 'block'}
+                blocked = True
+        if blocked and not targets:
+            stale -= 1
     return list(hits.values()), stale
 
 
@@ -348,8 +355,8 @@ def main():
             corrections.get(row['episode_id'], []), all_markers)
         stats['stale_corrections'] += stale
         action = {id(h['marker']): h['action'] for h in hits}
-        cut, blocking, undecided = (
-            [m for m in bucket if action.get(id(m)) != 'drop'] for bucket in parts)
+        cut = [m for m in cut if action.get(id(m)) != 'drop']
+        blocking = [m for m in blocking if action.get(id(m)) != 'drop']
         blocking += [m for m in undecided if id(m) not in action]
         blocking += [h['marker'] for h in hits if h['action'] == 'block']
         hits = [h for h in hits if h['action'] != 'block']

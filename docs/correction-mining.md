@@ -183,8 +183,9 @@ Provenance already has the vocabulary; nothing new is needed.
   adjustment the recut has not applied yet (the marker still sits at
   `original_bounds`), marks the marker blocking so the windows it touches
   are skipped like pending ones. A cut marker that overlaps a rejected span
-  without being covered by it blocks the same way, unless a correction has
-  already ruled on that marker. Corrections are read oldest first and the
+  without being covered by it blocks the same way, unless a person has
+  already ruled on that marker or the rejection was itself overridden by a
+  later decision. Corrections are read oldest first and the
   newest decision on a marker wins; a re-filed decision takes its newest
   position.
 - Uncut markers nobody ruled on are not negatives: pending holds, markers
@@ -206,9 +207,8 @@ Extractor 0.2.0 over the same database copy, `--limit 0`: 738 episodes,
 8659 windows (80% empty), 1956 windows skipped for an undecided,
 uncategorized, or contradicted marker, 23 episodes with every window
 skipped. Tiers: `human_verified` 62, `hard_negative` 145,
-`machine_accepted` 8452. 25 human corrections on eligible episodes matched
-no marker; one of them still blocks a cut neighbour it clips, the rest are
-ignored. Five cut markers were covered by a span a
+`machine_accepted` 8452. 24 human corrections on eligible episodes matched
+no marker and were ignored. Five cut markers were covered by a span a
 person had rejected; they were dropped and recorded under `dropped_spans`
 with rule `rejected_but_cut`, 9 entries across 8 windows because windows
 overlap.

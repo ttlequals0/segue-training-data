@@ -87,6 +87,32 @@ def test_resolve_rejection_of_neighbour_keeps_confirmed_marker():
         ('confirm', 'keep'), ('false_positive', 'keep')]
 
 
+def test_resolve_neighbour_only_rejection_blocks_and_is_not_stale():
+    hits, stale = resolve_corrections(
+        [correction('false_positive', bounds(15, 40))], [marker(0, 20)])
+    assert [(h['label'], h['action']) for h in hits] == [('false_positive', 'block')]
+    assert stale == 0
+
+
+def test_resolve_withdrawn_rejection_does_not_block_neighbour():
+    hits, stale = resolve_corrections([
+        correction('false_positive', bounds(0, 20)),
+        correction('confirm', bounds(0, 20)),
+    ], [marker(0, 20), marker(15, 40)])
+    assert [(h['label'], h['action']) for h in hits] == [('confirm', 'keep')]
+    assert stale == 0
+
+
+def test_resolve_rejection_blocks_neighbour_kept_only_by_auto_approval():
+    m = marker(100, 200)
+    hits, stale = resolve_corrections([
+        correction('confirm', bounds(100, 200), human=False),
+        correction('false_positive', bounds(190, 230)),
+    ], [m])
+    assert [(h['label'], h['action']) for h in hits] == [('false_positive', 'block')]
+    assert stale == 0
+
+
 def test_resolve_ignores_rejection_without_bounds():
     hits, stale = resolve_corrections(
         [correction('false_positive', None)], [marker(0, 20)])
