@@ -20,10 +20,12 @@ def test_partition_markers_blocks_pending_and_uncategorized():
         marker(40, 60, held_for_review=True, was_cut=False),
         marker(70, 90, category=None),
         marker(100, 120, was_cut=False),
+        marker(130, 140, was_cut=False, action_applied='keep'),
     ]
-    cut, blocking = partition_markers(markers)
+    cut, blocking, undecided = partition_markers(markers)
     assert [m['start'] for m in cut] == [0]
-    assert [m['start'] for m in blocking] == [40, 70]
+    assert [m['start'] for m in blocking] == [70]
+    assert [m['start'] for m in undecided] == [40, 130]
 
 
 def test_partition_markers_rejects_missing_bounds():

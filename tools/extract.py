@@ -103,21 +103,20 @@ def clip(span, window):
 
 
 def partition_markers(markers):
-    """Split into (cut, blocking); None when a marker has no bounds.
+    """Split into (cut, blocking, undecided); None when a marker has no bounds.
 
-    Blocking markers are pending review (MinusPod's is_pending_review rule,
-    inlined) or cut without a category; windows they touch are skipped."""
-    cut, blocking = [], []
+    Blocking markers are cut without a category. Undecided ones are uncut and
+    pending review (MinusPod's is_pending_review rule, inlined) or kept by
+    feed policy; they block unless a correction targets them."""
+    cut, blocking, undecided = [], [], []
     for m in markers:
         if 'start' not in m or 'end' not in m:
             return None
-        was_cut = m.get('was_cut', True)
-        pending = bool(m.get('held_for_review')) and not was_cut
-        if pending or (was_cut and not m.get('category')):
-            blocking.append(m)
-        elif was_cut:
-            cut.append(m)
-    return cut, blocking
+        if m.get('was_cut', True):
+            (cut if m.get('category') else blocking).append(m)
+        elif m.get('held_for_review') or m.get('action_applied') == 'keep':
+            undecided.append(m)
+    return cut, blocking, undecided
 
 
 def parse_bounds(raw):
@@ -128,24 +127,19 @@ def parse_bounds(raw):
 
 
 def fetch_corrections(conn):
-    """Corrections keyed by episode_id, oldest first, duplicate rows dropped.
-
-    Pass-2 auto-approvals are not human."""
+    """Corrections keyed by episode_id, oldest first; auto-approvals are not human."""
     by_episode = defaultdict(list)
-    seen = set()
     rows = conn.execute("""
         SELECT episode_id, correction_type, original_bounds, corrected_bounds,
                text_snippet
         FROM pattern_corrections
         WHERE correction_type IN ('confirm', 'false_positive',
                                   'boundary_adjustment', 'create')
-        ORDER BY id
+        GROUP BY episode_id, correction_type, original_bounds, corrected_bounds,
+                 text_snippet
+        ORDER BY MIN(id)
     """)
     for row in rows:
-        key = tuple(row)
-        if key in seen:
-            continue
-        seen.add(key)
         by_episode[row['episode_id']].append({
             'type': row['correction_type'],
             'original': parse_bounds(row['original_bounds']),
@@ -176,15 +170,9 @@ def targeted(bounds, markers, relation):
 
 
 def resolve_corrections(corrections, markers):
-    """Attach each correction to the markers it targets.
+    """(hits, stale): each hit is a marker with a keep, drop or block action.
 
-    Returns (hits, stale). Each hit carries an action for its marker: keep
-    (the marker is the span the correction names, within tolerance), drop
-    (a rejected span is still cut) or block (a human positive that covers a
-    marker without being it, an adjustment the recut has not applied yet,
-    or a cut marker overlapping a rejected span). Corrections arrive oldest
-    first and the newest decision on a marker wins. Pass-2 auto-approvals
-    get an auto_ label prefix and only ever keep."""
+    Newest decision on a marker wins; auto-approvals only ever keep."""
     hits, stale = {}, 0
     for c in corrections:
         label = c['type']
@@ -193,34 +181,29 @@ def resolve_corrections(corrections, markers):
         if not c['human']:
             label = 'auto_' + label
         if c['type'] == 'false_positive':
-            rejected = targeted(c['original'], markers, covers)
-            if not rejected:
-                stale += 1
-                continue
+            rejected = {id(m) for m in targeted(c['original'], markers, covers)}
+            targets = []
             for m in markers:
-                was_cut = m.get('was_cut', True)
-                if any(m is r for r in rejected):
-                    action = 'drop' if was_cut else 'keep'
-                elif was_cut and overlap(c['original'], m) >= MIN_AD_OVERLAP_SECONDS:
-                    action = 'block'
-                else:
-                    continue
-                hits[id(m)] = {'marker': m, 'label': label, 'action': action}
-            continue
-        target = c['corrected'] or c['original']
-        matches = targeted(target, markers, same_span)
-        cut = [m for m in matches if m.get('was_cut', True)]
-        if cut:
-            action, matches = 'keep', cut
-        elif c['human']:
-            action = 'block'
-            matches = matches or targeted(target, markers, covers)
-            if not matches and c['corrected']:
-                matches = targeted(c['original'], markers, covers)
-            stale += not matches
+                if id(m) in rejected:
+                    targets.append((m, 'drop' if m.get('was_cut', True) else 'keep'))
+                elif m.get('was_cut', True) and clip(m, c['original']):
+                    targets.append((m, 'block'))
         else:
-            matches = []
-        for m in matches:
+            target = c['corrected'] or c['original']
+            exact = targeted(target, markers, same_span)
+            cut = [m for m in exact if m.get('was_cut', True)]
+            if cut:
+                targets = [(m, 'keep') for m in cut]
+            elif not c['human']:
+                continue
+            else:
+                targets = [(m, 'block') for m in exact
+                           or targeted(target, markers, covers)
+                           or targeted(c['original'], markers, covers)]
+        if not targets:
+            stale += 1
+            continue
+        for m, action in targets:
             hits[id(m)] = {'marker': m, 'label': label, 'action': action}
     return list(hits.values()), stale
 
@@ -305,7 +288,7 @@ def main():
     now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
     rows = fetch_episodes(conn)
-    skipped = defaultdict(int)
+    skipped = Counter()
     eligible = []
     for row in rows:
         if row['slug'] in excluded_feeds:
@@ -317,7 +300,7 @@ def main():
         eligible.append(row)
 
     corrections = fetch_corrections(conn)
-    stats = defaultdict(int)
+    stats = Counter()
     # pattern_corrections has no feed column, so a shared episode_id is ambiguous.
     ambiguous = conn.execute("""
         SELECT episode_id FROM episodes
@@ -336,16 +319,13 @@ def main():
         if parts is None:
             skipped['unusable_markers'] += 1
             continue
-        cut, blocking = parts
+        cut, blocking, undecided = parts
         hits, stale = resolve_corrections(
             corrections.get(row['episode_id'], []), all_markers)
-        dropped = {id(h['marker']) for h in hits if h['action'] == 'drop'}
-        cut = [m for m in cut if id(m) not in dropped]
+        action = {id(h['marker']): h['action'] for h in hits}
+        cut = [m for m in cut if action.get(id(m)) != 'drop']
+        blocking += [m for m in undecided if id(m) not in action]
         blocking += [h['marker'] for h in hits if h['action'] == 'block']
-        # Feed policy kept these uncut, so they are not negatives unless a person said so.
-        targeted_ids = {id(h['marker']) for h in hits}
-        blocking += [m for m in all_markers if m.get('action_applied') == 'keep'
-                     and id(m) not in targeted_ids]
         hits = [h for h in hits if h['action'] != 'block']
         segments = json.loads(row['original_segments_json'])
         windows = create_windows(segments, window_size=win_size, overlap=win_overlap)
@@ -358,7 +338,6 @@ def main():
         if not kept:
             skipped['all_windows_blocked'] += 1
             continue
-        stats['stale_corrections'] += stale
 
         description_section = build_description_section(
             row['podcast_description'], row['episode_description'])
@@ -433,6 +412,7 @@ def main():
                 if not completion:
                     stats['empty_windows'] += 1
         stats['episodes'] += 1
+        stats['stale_corrections'] += stale
         feeds_seen.add(row['slug'])
 
     print(f"episodes: {stats['episodes']} across {len(feeds_seen)} feeds")
