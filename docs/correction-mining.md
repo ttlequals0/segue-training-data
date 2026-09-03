@@ -170,17 +170,23 @@ Provenance already has the vocabulary; nothing new is needed.
 - `hard_negative`: the window contains a span with a `false_positive`
   correction. Marker state alone cannot identify these: rejected markers sit
   in six different (decision, review, source) combinations in the database,
-  so the join is by `original_bounds` within 0.5 seconds of a marker. When
-  the rejected span is still cut, or a re-detected cut marker covers at
-  least half of it, that marker is dropped from the completion and recorded
-  in `dropped_spans` with rule `rejected_but_cut`.
-- Contradictions block the window. A human confirm, create, or adjustment
-  whose span is not cut, or an adjustment the recut has not applied yet
-  (the marker still sits at `original_bounds`), marks the marker blocking so
-  the windows it touches are skipped like pending ones.
+  so the join is by `original_bounds`, targeting every marker whose length
+  the rejected span covers by at least half (MinusPod's own
+  `CORRECTION_MATCH_MIN_COVERAGE` rule). A targeted marker that is still cut
+  is dropped from the completion and recorded in `dropped_spans` with rule
+  `rejected_but_cut`.
+- Positive corrections keep a marker only when it is the span they name,
+  both edges within 0.5 seconds. A human confirm, create, or adjustment
+  that covers a marker without being it, or whose span is not cut, or an
+  adjustment the recut has not applied yet (the marker still sits at
+  `original_bounds`), marks the marker blocking so the windows it touches
+  are skipped like pending ones. A cut marker that overlaps a rejected span
+  without being covered by it blocks the same way. Corrections are read
+  oldest first and the newest decision on a marker wins.
+- Markers the feed's policy kept uncut (`action_applied` `keep`) are not
+  negatives: they block their windows unless a correction targets them.
 - `human_verified` also covers `boundary_adjustment` and trimmed `confirm`
-  windows, with the shift recorded in provenance so an ablation can isolate
-  them.
+  windows, labelled in provenance so an ablation can isolate them.
 - `machine_accepted`: everything else, as today.
 
 Record the correction types per example in provenance so a run can train on
@@ -190,14 +196,15 @@ tier.
 
 ### Result
 
-Extractor 0.2.0 over the same database copy, `--limit 0`: 740 episodes,
-9036 windows (79% empty), 1579 windows skipped for a pending,
-uncategorized, or contradicted marker, 21 episodes with every window
-skipped. Tiers: `human_verified` 66, `hard_negative` 202,
-`machine_accepted` 8768. 37 corrections on extracted episodes matched no
-marker and were ignored. Seven cut markers covered a span a person had
-rejected; they were dropped and recorded under `dropped_spans` with rule
-`rejected_but_cut`, which touches 10 windows.
+Extractor 0.2.0 over the same database copy, `--limit 0`: 738 episodes,
+8786 windows (79% empty), 1829 windows skipped for a pending,
+uncategorized, policy-kept, or contradicted marker, 23 episodes with every
+window skipped. Tiers: `human_verified` 64, `hard_negative` 174,
+`machine_accepted` 8548. 18 human corrections on extracted episodes
+matched no marker and were ignored. Seven cut markers were covered by a
+span a person had rejected; they were dropped and recorded under
+`dropped_spans` with rule `rejected_but_cut`, 10 entries across 9 windows
+because windows overlap.
 
 ### Holdout
 

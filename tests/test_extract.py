@@ -43,11 +43,11 @@ def test_resolve_matches_within_tolerance_and_counts_stale():
 
 
 def test_resolve_labels_trims_and_auto_approvals():
-    markers = [marker(10.0, 35.0)]
+    markers = [marker(10.0, 35.0), marker(50.0, 60.0), marker(70.0, 80.0)]
     hits, _ = resolve_corrections([
         correction('confirm', bounds(10, 40), bounds(10, 35), human=False),
-        correction('confirm', bounds(10, 35)),
-        correction('create', None, bounds(10, 35)),
+        correction('confirm', bounds(50, 60)),
+        correction('create', None, bounds(70, 80)),
     ], markers)
     assert [h['label'] for h in hits] == [
         'auto_confirm_trimmed', 'confirm', 'create']
@@ -59,15 +59,39 @@ def test_resolve_drops_rejected_span_that_is_still_cut():
     assert [h['action'] for h in hits] == ['drop']
 
 
-def test_resolve_drops_redetected_marker_covering_rejected_span():
+def test_resolve_false_positive_by_coverage_of_the_marker():
     rejected = marker(714.6, 912.2, was_cut=False)
     redetected = marker(737.1, 912.2)
-    elsewhere = marker(1000, 1100)
+    superset = marker(700.0, 1300.0)
+    elsewhere = marker(1400, 1500)
     hits, _ = resolve_corrections(
         [correction('false_positive', bounds(714.6, 912.2))],
-        [rejected, redetected, elsewhere])
-    assert [(h['marker'] is redetected, h['action']) for h in hits] == [
-        (False, 'keep'), (True, 'drop')]
+        [rejected, redetected, superset, elsewhere])
+    assert [h['action'] for h in hits] == ['keep', 'drop', 'block']
+    assert hits[2]['marker'] is superset
+
+
+def test_resolve_newest_decision_per_marker_wins():
+    m = marker(0, 20)
+    hits, _ = resolve_corrections([
+        correction('confirm', bounds(0, 20)),
+        correction('false_positive', bounds(0, 20)),
+    ], [m])
+    assert [(h['label'], h['action']) for h in hits] == [('false_positive', 'drop')]
+    hits, _ = resolve_corrections([
+        correction('boundary_adjustment', bounds(0, 20), bounds(0, 15)),
+        correction('confirm', bounds(0, 20)),
+    ], [m])
+    assert [(h['label'], h['action']) for h in hits] == [('confirm', 'keep')]
+
+
+def test_resolve_ignores_auto_approvals_that_do_not_keep():
+    hits, stale = resolve_corrections([
+        correction('confirm', bounds(0, 20), human=False),
+        correction('confirm', bounds(100, 120), bounds(100, 110), human=False),
+    ], [marker(0, 20, was_cut=False), marker(100, 120)])
+    assert hits == []
+    assert stale == 0
 
 
 def test_resolve_prefers_cut_twin_and_blocks_uncut_positive():
@@ -88,6 +112,17 @@ def test_resolve_blocks_unapplied_adjustment():
         [marker(2309.6, 2415.6)])
     assert stale == 0
     assert [h['action'] for h in hits] == ['block']
+
+
+def test_resolve_blocks_positive_that_covers_a_different_span():
+    inside = marker(20, 30)
+    hits, stale = resolve_corrections(
+        [correction('create', None, bounds(10, 40))], [inside, marker(200, 300)])
+    assert stale == 0
+    assert [(h['marker'] is inside, h['action']) for h in hits] == [(True, 'block')]
+    _, stale = resolve_corrections(
+        [correction('confirm', bounds(10, 40))], [marker(10, 100)])
+    assert stale == 1
 
 
 def test_classify_window_precedence():
