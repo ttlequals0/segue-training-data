@@ -106,28 +106,33 @@ def partition_markers(markers):
     """Split into (cut, blocking, undecided); None when a marker has no bounds.
 
     Blocking markers are cut without a category. Undecided ones are uncut and
-    pending review (MinusPod's is_pending_review rule, inlined) or kept by
-    feed policy; they block unless a correction targets them."""
+    pending review (MinusPod's is_pending_review rule, inlined), kept by feed
+    policy, or confidence-gated REVIEW ads nobody ruled on; they block unless
+    a correction targets them."""
     cut, blocking, undecided = [], [], []
     for m in markers:
         if 'start' not in m or 'end' not in m:
             return None
+        gated = ((m.get('validation') or {}).get('decision') == 'REVIEW'
+                 and not m.get('reviewer_verdict'))
         if m.get('was_cut', True):
             (cut if m.get('category') else blocking).append(m)
-        elif m.get('held_for_review') or m.get('action_applied') == 'keep':
+        elif m.get('held_for_review') or m.get('action_applied') == 'keep' or gated:
             undecided.append(m)
     return cut, blocking, undecided
 
 
 def parse_bounds(raw):
-    if not raw:
+    try:
+        b = json.loads(raw)
+        return {'start': float(b['start']), 'end': float(b['end'])}
+    except (TypeError, ValueError, KeyError):
         return None
-    b = json.loads(raw)
-    return {'start': float(b['start']), 'end': float(b['end'])}
 
 
 def fetch_corrections(conn):
-    """Corrections keyed by episode_id, oldest first; auto-approvals are not human."""
+    """Corrections keyed by episode_id, oldest first; a re-filed decision
+    takes its newest id. Auto-approvals are not human."""
     by_episode = defaultdict(list)
     rows = conn.execute("""
         SELECT episode_id, correction_type, original_bounds, corrected_bounds,
@@ -137,7 +142,7 @@ def fetch_corrections(conn):
                                   'boundary_adjustment', 'create')
         GROUP BY episode_id, correction_type, original_bounds, corrected_bounds,
                  text_snippet
-        ORDER BY MIN(id)
+        ORDER BY MAX(id)
     """)
     for row in rows:
         by_episode[row['episode_id']].append({
@@ -172,7 +177,9 @@ def targeted(bounds, markers, relation):
 def resolve_corrections(corrections, markers):
     """(hits, stale): each hit is a marker with a keep, drop or block action.
 
-    Newest decision on a marker wins; auto-approvals only ever keep."""
+    Newest decision on a marker wins, but a rejection only blocks a
+    neighbouring cut marker that no correction has ruled on. Auto-approvals
+    only ever keep."""
     hits, stale = {}, 0
     for c in corrections:
         label = c['type']
@@ -181,19 +188,20 @@ def resolve_corrections(corrections, markers):
         if not c['human']:
             label = 'auto_' + label
         if c['type'] == 'false_positive':
-            rejected = {id(m) for m in targeted(c['original'], markers, covers)}
             targets = []
-            for m in markers:
-                if id(m) in rejected:
-                    targets.append((m, 'drop' if m.get('was_cut', True) else 'keep'))
-                elif m.get('was_cut', True) and clip(m, c['original']):
+            for m in (markers if c['original'] else []):
+                if not m.get('was_cut', True):
+                    if same_span(c['original'], m):
+                        targets.append((m, 'keep'))
+                elif covers(c['original'], m):
+                    targets.append((m, 'drop'))
+                elif id(m) not in hits and clip(m, c['original']):
                     targets.append((m, 'block'))
         else:
             target = c['corrected'] or c['original']
             exact = targeted(target, markers, same_span)
-            cut = [m for m in exact if m.get('was_cut', True)]
-            if cut:
-                targets = [(m, 'keep') for m in cut]
+            if any(m.get('was_cut', True) for m in exact):
+                targets = [(m, 'keep') for m in exact]
             elif not c['human']:
                 continue
             else:
@@ -322,8 +330,10 @@ def main():
         cut, blocking, undecided = parts
         hits, stale = resolve_corrections(
             corrections.get(row['episode_id'], []), all_markers)
+        stats['stale_corrections'] += stale
         action = {id(h['marker']): h['action'] for h in hits}
         cut = [m for m in cut if action.get(id(m)) != 'drop']
+        blocking = [m for m in blocking if action.get(id(m)) != 'drop']
         blocking += [m for m in undecided if id(m) not in action]
         blocking += [h['marker'] for h in hits if h['action'] == 'block']
         hits = [h for h in hits if h['action'] != 'block']
@@ -362,7 +372,7 @@ def main():
                 dropped_spans = [
                     {'start': float(h['marker']['start']),
                      'end': float(h['marker']['end']),
-                     'category': h['marker']['category'],
+                     'category': h['marker'].get('category') or 'uncategorized',
                      'reason': str(h['marker'].get('reason', '')),
                      'rule': 'rejected_but_cut'}
                     for h in window_hits if h['action'] == 'drop']
@@ -412,7 +422,6 @@ def main():
                 if not completion:
                     stats['empty_windows'] += 1
         stats['episodes'] += 1
-        stats['stale_corrections'] += stale
         feeds_seen.add(row['slug'])
 
     print(f"episodes: {stats['episodes']} across {len(feeds_seen)} feeds")

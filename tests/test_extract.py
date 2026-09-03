@@ -14,18 +14,21 @@ def bounds(start, end):
     return {'start': start, 'end': end}
 
 
-def test_partition_markers_blocks_pending_and_uncategorized():
+def test_partition_markers_buckets():
     markers = [
         marker(0, 30),
         marker(40, 60, held_for_review=True, was_cut=False),
         marker(70, 90, category=None),
         marker(100, 120, was_cut=False),
         marker(130, 140, was_cut=False, action_applied='keep'),
+        marker(150, 160, was_cut=False, validation={'decision': 'REVIEW'}),
+        marker(170, 180, was_cut=False, validation={'decision': 'REVIEW'},
+               reviewer_verdict='reject'),
     ]
     cut, blocking, undecided = partition_markers(markers)
     assert [m['start'] for m in cut] == [0]
     assert [m['start'] for m in blocking] == [70]
-    assert [m['start'] for m in undecided] == [40, 130]
+    assert [m['start'] for m in undecided] == [40, 130, 150]
 
 
 def test_partition_markers_rejects_missing_bounds():
@@ -65,12 +68,29 @@ def test_resolve_false_positive_by_coverage_of_the_marker():
     rejected = marker(714.6, 912.2, was_cut=False)
     redetected = marker(737.1, 912.2)
     superset = marker(700.0, 1300.0)
+    neighbour = marker(600.0, 720.0, held_for_review=True, was_cut=False)
     elsewhere = marker(1400, 1500)
     hits, _ = resolve_corrections(
         [correction('false_positive', bounds(714.6, 912.2))],
-        [rejected, redetected, superset, elsewhere])
+        [rejected, redetected, superset, neighbour, elsewhere])
     assert [h['action'] for h in hits] == ['keep', 'drop', 'block']
     assert hits[2]['marker'] is superset
+
+
+def test_resolve_rejection_of_neighbour_keeps_confirmed_marker():
+    confirmed = marker(100, 200)
+    hits, _ = resolve_corrections([
+        correction('confirm', bounds(100, 200)),
+        correction('false_positive', bounds(190, 230)),
+    ], [confirmed, marker(190, 230, was_cut=False)])
+    assert [(h['label'], h['action']) for h in hits] == [
+        ('confirm', 'keep'), ('false_positive', 'keep')]
+
+
+def test_resolve_ignores_rejection_without_bounds():
+    hits, stale = resolve_corrections(
+        [correction('false_positive', None)], [marker(0, 20)])
+    assert hits == [] and stale == 1
 
 
 def test_resolve_newest_decision_per_marker_wins():
@@ -101,7 +121,8 @@ def test_resolve_prefers_cut_twin_and_blocks_uncut_positive():
     twin = marker(0, 20, was_cut=False)
     hits, _ = resolve_corrections(
         [correction('confirm', bounds(0, 20))], [twin, cut])
-    assert [(h['marker'] is cut, h['action']) for h in hits] == [(True, 'keep')]
+    assert [(h['marker'] is cut, h['action']) for h in hits] == [
+        (False, 'keep'), (True, 'keep')]
     hits, _ = resolve_corrections(
         [correction('confirm', bounds(0, 20))], [twin])
     assert [h['action'] for h in hits] == ['block']

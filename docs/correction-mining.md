@@ -28,8 +28,8 @@ are filtered. What does block correction episodes: `pending_review_count > 0`
 drops the whole episode (225 of the 423 with transcripts), and one
 uncategorized cut marker drops the whole episode (108 of 423). 129 correction
 episodes pass both filters today and are not selected. A rejected
-marker is already `was_cut=False`, which `usable_markers` skips per marker, so
-the completion already omits it; that is a hard negative the data carries
+marker is already `was_cut=False`, which the extractor leaves out of the
+completion, so the completion already omits it; that is a hard negative the data carries
 without saying so.
 
 ## What is available
@@ -65,8 +65,9 @@ trimmed to the pass-2 span. Only 136 confirms are a person's decision, and
 So human boundary supervision on episodes with a transcript is 23 boundary
 adjustments, 5 trimmed confirms, and 3 creates, and the extractor can emit
 18 of the adjustments and the 5 trims: the 3 creates and 4 of the
-adjustments sit on markers with no category. The 371 auto-approved trims
-(mean total edge shift 21.8 seconds, median 21.6) are pass-2 output, the same
+adjustments sit on markers with no category, and one adjustment was
+overridden by a later confirm at the original bounds. The 371 auto-approved
+trims (mean total edge shift 20.3 seconds, median 21.4) are pass-2 output, the same
 detector this project is trying to replace, and stay `machine_accepted`.
 They are tagged in provenance so they can be ablated on their own. The 83
 boundary adjustments shift 39.8 seconds on average (median 10.0).
@@ -170,21 +171,26 @@ Provenance already has the vocabulary; nothing new is needed.
 - `hard_negative`: the window contains a span with a `false_positive`
   correction. Marker state alone cannot identify these: rejected markers sit
   in six different (decision, review, source) combinations in the database,
-  so the join is by `original_bounds`, targeting every marker whose length
-  the rejected span covers by at least half (MinusPod's own
-  `CORRECTION_MATCH_MIN_COVERAGE` rule). A targeted marker that is still cut
-  is dropped from the completion and recorded in `dropped_spans` with rule
-  `rejected_but_cut`.
+  so the join is by `original_bounds`: the uncut marker at those bounds
+  (within 0.5 seconds, the same match MinusPod's reject path uses to clear a
+  hold) and any cut marker whose length the rejected span covers by at least
+  half (MinusPod's `CORRECTION_MATCH_MIN_COVERAGE` rule). A covered cut
+  marker is dropped from the completion and recorded in `dropped_spans` with
+  rule `rejected_but_cut`, and `fix_labels.py` will not merge across it.
 - Positive corrections keep a marker only when it is the span they name,
   both edges within 0.5 seconds. A human confirm, create, or adjustment
   that covers a marker without being it, or whose span is not cut, or an
   adjustment the recut has not applied yet (the marker still sits at
   `original_bounds`), marks the marker blocking so the windows it touches
   are skipped like pending ones. A cut marker that overlaps a rejected span
-  without being covered by it blocks the same way. Corrections are read
-  oldest first and the newest decision on a marker wins.
-- Markers the feed's policy kept uncut (`action_applied` `keep`) are not
-  negatives: they block their windows unless a correction targets them.
+  without being covered by it blocks the same way, unless a correction has
+  already ruled on that marker. Corrections are read oldest first and the
+  newest decision on a marker wins; a re-filed decision takes its newest
+  position.
+- Uncut markers nobody ruled on are not negatives: pending holds, markers
+  the feed's policy kept (`action_applied` `keep`), and confidence-gated
+  `REVIEW` ads without a reviewer verdict block their windows unless a
+  correction targets them.
 - `human_verified` also covers `boundary_adjustment` and trimmed `confirm`
   windows, labelled in provenance so an ablation can isolate them.
 - `machine_accepted`: everything else, as today.
@@ -197,14 +203,14 @@ tier.
 ### Result
 
 Extractor 0.2.0 over the same database copy, `--limit 0`: 738 episodes,
-8786 windows (79% empty), 1829 windows skipped for a pending,
-uncategorized, policy-kept, or contradicted marker, 23 episodes with every
-window skipped. Tiers: `human_verified` 64, `hard_negative` 174,
-`machine_accepted` 8548. 18 human corrections on extracted episodes
-matched no marker and were ignored. Seven cut markers were covered by a
-span a person had rejected; they were dropped and recorded under
-`dropped_spans` with rule `rejected_but_cut`, 10 entries across 9 windows
-because windows overlap.
+8659 windows (80% empty), 1956 windows skipped for an undecided,
+uncategorized, or contradicted marker, 23 episodes with every window
+skipped. Tiers: `human_verified` 62, `hard_negative` 145,
+`machine_accepted` 8452. 24 human corrections on eligible episodes matched
+no marker and were ignored. Five cut markers were covered by a span a
+person had rejected; they were dropped and recorded under `dropped_spans`
+with rule `rejected_but_cut`, 9 entries across 8 windows because windows
+overlap.
 
 ### Holdout
 

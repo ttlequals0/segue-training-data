@@ -3,8 +3,10 @@
 GAP_SECONDS = 15.0
 
 
-def merge_gaps(spans, gap=GAP_SECONDS):
-    """Merge dict spans whose gap is under `gap` seconds."""
+def merge_gaps(spans, gap=GAP_SECONDS, barriers=()):
+    """Merge dict spans whose gap is under `gap` seconds.
+
+    A gap that overlaps a barrier (start, end) is never merged."""
     if not spans:
         return []
     ordered = sorted((dict(s) for s in spans),
@@ -12,7 +14,8 @@ def merge_gaps(spans, gap=GAP_SECONDS):
     out = [ordered[0]]
     for s in ordered[1:]:
         cur = out[-1]
-        if s["start"] - cur["end"] < gap:
+        blocked = any(b[0] < s["start"] and b[1] > cur["end"] for b in barriers)
+        if s["start"] - cur["end"] < gap and not blocked:
             if s["end"] > cur["end"]:
                 cur["end"] = s["end"]
                 if "end_text" in s:
