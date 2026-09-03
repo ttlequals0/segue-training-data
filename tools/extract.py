@@ -181,13 +181,16 @@ def resolve_corrections(corrections, markers):
     """(hits, stale): each hit is a marker with a keep, drop or block action.
 
     Newest decision on a marker wins, but an auto-approval never overrides a
-    person. A rejection stands until a person confirms every marker it
-    matched; while it stands it blocks any cut marker it clips that no
+    person. A rejection stands while any marker it matched is still
+    rejected; while it stands it blocks any cut marker it clips that no
     person ruled on."""
     hits, stale, rejections = {}, 0, []
 
     def ruled_by_person(m):
         return id(m) in hits and hits[id(m)]['source']['human']
+
+    def rejected(m):
+        return hits[id(m)]['source']['type'] == 'false_positive'
 
     for c in corrections:
         if c['type'] == 'false_positive':
@@ -217,8 +220,7 @@ def resolve_corrections(corrections, markers):
             if c['human'] or not ruled_by_person(m):
                 hits[id(m)] = {'marker': m, 'action': action, 'source': c}
     for c, targets in rejections:
-        if targets and all(hits[id(m)]['source']['type'] != 'false_positive'
-                           for m in targets):
+        if targets and not any(rejected(m) for m in targets):
             continue
         clipped = [m for m in markers
                    if m.get('was_cut', True) and clip(m, c['original'])]
@@ -232,14 +234,15 @@ def resolve_corrections(corrections, markers):
 
 def classify_window(hits):
     """(tier, reviewed, corrected) from the corrections touching a window."""
-    human = {correction_label(h['source']) for h in hits if h['source']['human']}
-    if human - {'false_positive'}:
+    human = [h['source'] for h in hits if h['source']['human']]
+    if any(c['type'] != 'false_positive' for c in human):
         tier = 'human_verified'
     elif human:
         tier = 'hard_negative'
     else:
         tier = 'machine_accepted'
-    return tier, bool(human), bool(human - {'confirm'})
+    corrected = any(c['type'] != 'confirm' or c['corrected'] for c in human)
+    return tier, bool(human), corrected
 
 
 def fetch_episodes(conn):

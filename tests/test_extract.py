@@ -10,6 +10,14 @@ def correction(type_, original=None, corrected=None, human=True):
             'human': human}
 
 
+def decided(hits):
+    return [(correction_label(h['source']), h['action']) for h in hits]
+
+
+def placed(hits):
+    return [(h['marker']['start'], *d) for h, d in zip(hits, decided(hits))]
+
+
 def bounds(start, end):
     return {'start': start, 'end': end}
 
@@ -43,7 +51,7 @@ def test_resolve_matches_within_tolerance_and_counts_stale():
         correction('false_positive', bounds(500, 530)),
     ], markers)
     assert stale == 1
-    assert [(correction_label(h['source']), h['action']) for h in hits] == [
+    assert decided(hits) == [
         ('confirm', 'keep'), ('false_positive', 'keep')]
 
 
@@ -83,14 +91,14 @@ def test_resolve_rejection_of_neighbour_keeps_confirmed_marker():
         correction('confirm', bounds(100, 200)),
         correction('false_positive', bounds(190, 230)),
     ], [confirmed, marker(190, 230, was_cut=False)])
-    assert [(correction_label(h['source']), h['action']) for h in hits] == [
+    assert decided(hits) == [
         ('confirm', 'keep'), ('false_positive', 'keep')]
 
 
 def test_resolve_neighbour_only_rejection_blocks_and_is_not_stale():
     hits, stale = resolve_corrections(
         [correction('false_positive', bounds(15, 40))], [marker(0, 20)])
-    assert [(correction_label(h['source']), h['action']) for h in hits] == [('false_positive', 'block')]
+    assert decided(hits) == [('false_positive', 'block')]
     assert stale == 0
 
 
@@ -99,7 +107,7 @@ def test_resolve_withdrawn_rejection_does_not_block_neighbour():
         correction('false_positive', bounds(0, 20)),
         correction('confirm', bounds(0, 20)),
     ], [marker(0, 20), marker(15, 40)])
-    assert [(correction_label(h['source']), h['action']) for h in hits] == [('confirm', 'keep')]
+    assert decided(hits) == [('confirm', 'keep')]
     assert stale == 0
 
 
@@ -109,7 +117,7 @@ def test_resolve_rejection_blocks_neighbour_kept_only_by_auto_approval():
         correction('confirm', bounds(100, 200), human=False),
         correction('false_positive', bounds(190, 230)),
     ], [m])
-    assert [(correction_label(h['source']), h['action']) for h in hits] == [('false_positive', 'block')]
+    assert decided(hits) == [('false_positive', 'block')]
     assert stale == 0
 
 
@@ -118,7 +126,7 @@ def test_resolve_auto_approval_does_not_override_human_rejection():
         correction('false_positive', bounds(0, 20)),
         correction('confirm', bounds(0, 20), human=False),
     ], [marker(0, 20), marker(15, 40)])
-    assert [(h['marker']['start'], correction_label(h['source']), h['action']) for h in hits] == [
+    assert placed(hits) == [
         (0, 'false_positive', 'drop'), (15, 'false_positive', 'block')]
     assert stale == 0
 
@@ -128,12 +136,12 @@ def test_resolve_auto_approval_does_not_override_human_positive():
         correction('confirm', bounds(10, 40)),
         correction('confirm', bounds(20, 30), human=False),
     ], [marker(20, 30)])
-    assert [(correction_label(h['source']), h['action']) for h in hits] == [('confirm', 'block')]
+    assert decided(hits) == [('confirm', 'block')]
     hits, _ = resolve_corrections([
         correction('confirm', bounds(0, 20)),
         correction('confirm', bounds(0, 20), human=False),
     ], [marker(0, 20)])
-    assert [(correction_label(h['source']), h['action']) for h in hits] == [('confirm', 'keep')]
+    assert decided(hits) == [('confirm', 'keep')]
 
 
 def test_resolve_concurring_rejection_does_not_withdraw_the_first():
@@ -141,7 +149,7 @@ def test_resolve_concurring_rejection_does_not_withdraw_the_first():
         correction('false_positive', bounds(100, 400)),
         correction('false_positive', bounds(250, 450)),
     ], [marker(300, 400), marker(90, 105)])
-    assert [(h['marker']['start'], correction_label(h['source']), h['action']) for h in hits] == [
+    assert placed(hits) == [
         (300, 'false_positive', 'drop'), (90, 'false_positive', 'block')]
 
 
@@ -150,7 +158,7 @@ def test_resolve_partly_withdrawn_rejection_still_blocks():
         correction('false_positive', bounds(700, 1300)),
         correction('confirm', bounds(700, 900)),
     ], [marker(700, 900), marker(1000, 1300), marker(1290, 1400)])
-    assert [(h['marker']['start'], correction_label(h['source']), h['action']) for h in hits] == [
+    assert placed(hits) == [
         (700, 'confirm', 'keep'), (1000, 'false_positive', 'drop'),
         (1290, 'false_positive', 'block')]
 
@@ -160,7 +168,7 @@ def test_resolve_rejections_sharing_a_neighbour_are_not_stale():
         correction('false_positive', bounds(15, 40)),
         correction('false_positive', bounds(18, 45)),
     ], [marker(0, 20)])
-    assert [(correction_label(h['source']), h['action']) for h in hits] == [('false_positive', 'block')]
+    assert decided(hits) == [('false_positive', 'block')]
     assert stale == 0
 
 
@@ -176,12 +184,12 @@ def test_resolve_newest_decision_per_marker_wins():
         correction('confirm', bounds(0, 20)),
         correction('false_positive', bounds(0, 20)),
     ], [m])
-    assert [(correction_label(h['source']), h['action']) for h in hits] == [('false_positive', 'drop')]
+    assert decided(hits) == [('false_positive', 'drop')]
     hits, _ = resolve_corrections([
         correction('boundary_adjustment', bounds(0, 20), bounds(0, 15)),
         correction('confirm', bounds(0, 20)),
     ], [m])
-    assert [(correction_label(h['source']), h['action']) for h in hits] == [('confirm', 'keep')]
+    assert decided(hits) == [('confirm', 'keep')]
 
 
 def test_resolve_ignores_auto_approvals_that_do_not_keep():
