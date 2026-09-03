@@ -15,7 +15,7 @@ import datetime
 import json
 import sqlite3
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -153,7 +153,9 @@ def same_span(bounds, marker):
 
 
 def matching(bounds, markers):
-    return [m for m in markers if bounds and same_span(bounds, m)]
+    if not bounds:
+        return []
+    return [m for m in markers if same_span(bounds, m)]
 
 
 def covered_by(span, marker):
@@ -182,14 +184,15 @@ def resolve_corrections(corrections, markers):
             if not rejected:
                 stale += 1
                 continue
-            for m in rejected:
-                hits.append({'marker': m, 'label': label,
-                             'action': 'drop' if m.get('was_cut', True) else 'keep'})
-            # A re-detected cut marker covering the rejected span is the same ad.
-            hits.extend({'marker': m, 'label': label, 'action': 'drop'}
-                        for m in markers if m.get('was_cut', True)
-                        and not any(m is r for r in rejected)
-                        and any(covered_by(r, m) for r in rejected))
+            for m in markers:
+                was_cut = m.get('was_cut', True)
+                if any(m is r for r in rejected):
+                    action = 'drop' if was_cut else 'keep'
+                elif was_cut and any(covered_by(r, m) for r in rejected):
+                    action = 'drop'  # re-detected cut marker over the rejected span
+                else:
+                    continue
+                hits.append({'marker': m, 'label': label, 'action': action})
             continue
         action = 'keep'
         matches = matching(c['corrected'] or c['original'], markers)
@@ -200,11 +203,9 @@ def resolve_corrections(corrections, markers):
             stale += 1
             continue
         cut = [m for m in matches if m.get('was_cut', True)]
-        if cut:
-            matches = cut
-        else:
+        if not cut:
             action = 'block'
-        hits.extend({'marker': m, 'label': label, 'action': action} for m in matches)
+        hits.extend({'marker': m, 'label': label, 'action': action} for m in cut or matches)
     return hits, stale
 
 
@@ -301,11 +302,11 @@ def main():
         eligible.append(row)
 
     corrections = fetch_corrections(conn)
-    # pattern_corrections has no feed column, so a shared episode_id is ambiguous.
-    id_counts = defaultdict(int)
-    for row in rows:
-        id_counts[row['episode_id']] += 1
     stats = defaultdict(int)
+    # pattern_corrections has no feed column, so a shared episode_id is ambiguous.
+    id_counts = Counter(row['episode_id'] for row in rows)
+    for episode_id in [eid for eid, n in id_counts.items() if n > 1]:
+        stats['ambiguous_id_corrections'] += len(corrections.pop(episode_id, []))
     tiers = defaultdict(int)
     labels = defaultdict(int)
     feeds_seen = set()
@@ -316,14 +317,13 @@ def main():
             skipped['unusable_markers'] += 1
             continue
         cut, blocking = parts
-        episode_corrections = corrections.get(row['episode_id'], [])
-        if id_counts[row['episode_id']] > 1:
-            stats['ambiguous_id_corrections'] += len(episode_corrections)
-            episode_corrections = []
-        hits, stale = resolve_corrections(episode_corrections, all_markers)
+        hits, stale = resolve_corrections(
+            corrections.get(row['episode_id'], []), all_markers)
+        stats['stale_corrections'] += stale
         dropped = {id(h['marker']) for h in hits if h['action'] == 'drop'}
         cut = [m for m in cut if id(m) not in dropped]
         blocking += [h['marker'] for h in hits if h['action'] == 'block']
+        hits = [h for h in hits if h['action'] != 'block']
         segments = json.loads(row['original_segments_json'])
         windows = create_windows(segments, window_size=win_size, overlap=win_overlap)
         if not windows:
@@ -335,7 +335,6 @@ def main():
         if not kept:
             skipped['all_windows_blocked'] += 1
             continue
-        stats['stale_corrections'] += stale
 
         description_section = build_description_section(
             row['podcast_description'], row['episode_description'])
