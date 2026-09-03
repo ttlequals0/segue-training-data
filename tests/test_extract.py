@@ -113,6 +113,35 @@ def test_resolve_rejection_blocks_neighbour_kept_only_by_auto_approval():
     assert stale == 0
 
 
+def test_resolve_auto_approval_does_not_override_human_rejection():
+    hits, stale = resolve_corrections([
+        correction('false_positive', bounds(0, 20)),
+        correction('confirm', bounds(0, 20), human=False),
+    ], [marker(0, 20), marker(15, 40)])
+    assert sorted((h['label'], h['action']) for h in hits) == [
+        ('false_positive', 'block'), ('false_positive', 'drop')]
+    assert stale == 0
+
+
+def test_resolve_partly_withdrawn_rejection_still_blocks():
+    hits, _ = resolve_corrections([
+        correction('false_positive', bounds(700, 1300)),
+        correction('confirm', bounds(700, 900)),
+    ], [marker(700, 900), marker(1000, 1300), marker(1290, 1400)])
+    assert [(h['marker']['start'], h['label'], h['action']) for h in hits] == [
+        (700, 'confirm', 'keep'), (1000, 'false_positive', 'drop'),
+        (1290, 'false_positive', 'block')]
+
+
+def test_resolve_rejections_sharing_a_neighbour_are_not_stale():
+    hits, stale = resolve_corrections([
+        correction('false_positive', bounds(15, 40)),
+        correction('false_positive', bounds(18, 45)),
+    ], [marker(0, 20)])
+    assert [(h['label'], h['action']) for h in hits] == [('false_positive', 'block')]
+    assert stale == 0
+
+
 def test_resolve_ignores_rejection_without_bounds():
     hits, stale = resolve_corrections(
         [correction('false_positive', None)], [marker(0, 20)])

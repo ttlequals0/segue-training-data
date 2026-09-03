@@ -184,10 +184,10 @@ Provenance already has the vocabulary; nothing new is needed.
   `original_bounds`), marks the marker blocking so the windows it touches
   are skipped like pending ones. A cut marker that overlaps a rejected span
   without being covered by it blocks the same way, unless a person has
-  already ruled on that marker or the rejection was itself overridden by a
-  later decision. Corrections are read oldest first and the
-  newest decision on a marker wins; a re-filed decision takes its newest
-  position.
+  already ruled on that marker or a person later withdrew the rejection on
+  every marker it covered. Corrections are read oldest first and the newest
+  decision on a marker wins, except that an auto-approval never overrides a
+  person; a re-filed decision takes its newest position.
 - Uncut markers nobody ruled on are not negatives: pending holds, markers
   the feed's policy kept (`action_applied` `keep`), and confidence-gated
   `REVIEW` ads without a reviewer verdict block their windows unless a

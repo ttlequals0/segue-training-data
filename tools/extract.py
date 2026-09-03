@@ -175,10 +175,14 @@ def targeted(bounds, markers, relation):
 def resolve_corrections(corrections, markers):
     """(hits, stale): each hit is a marker with a keep, drop or block action.
 
-    Newest decision on a marker wins. Auto-approvals only ever keep. After
-    all decisions, a rejection that still stands blocks any cut marker it
-    clips that no person ruled on."""
+    Newest decision on a marker wins, but an auto-approval never overrides a
+    person. After all decisions, a rejection a person has not fully withdrawn
+    blocks any cut marker it clips that no person ruled on."""
     hits, stale, rejections = {}, 0, []
+
+    def ruled_by_person(m):
+        return id(m) in hits and hits[id(m)]['human']
+
     for c in corrections:
         label = c['type']
         if c['type'] == 'confirm' and c['corrected']:
@@ -199,7 +203,10 @@ def resolve_corrections(corrections, markers):
             target = c['corrected'] or c['original']
             exact = targeted(target, markers, same_span)
             if any(m.get('was_cut', True) for m in exact):
-                targets = [(m, 'keep') for m in exact]
+                targets = [(m, 'keep') for m in exact
+                           if c['human'] or not ruled_by_person(m)]
+                if not targets:
+                    continue
             elif not c['human']:
                 continue
             else:
@@ -209,16 +216,18 @@ def resolve_corrections(corrections, markers):
             if not targets:
                 stale += 1
         for m, action in targets:
-            hits[id(m)] = {'marker': m, 'label': label, 'action': action}
+            hits[id(m)] = {'marker': m, 'label': label, 'action': action,
+                           'human': c['human']}
     for bounds, targets in rejections:
-        if any(hits[id(m)]['label'] != 'false_positive' for m in targets):
+        if targets and all(hits[id(m)]['label'] != 'false_positive' for m in targets):
             continue
-        blocked = [m for m in markers
-                   if (id(m) not in hits or hits[id(m)]['label'].startswith('auto_'))
-                   and m.get('was_cut', True) and clip(m, bounds)]
-        for m in blocked:
-            hits[id(m)] = {'marker': m, 'label': 'false_positive', 'action': 'block'}
-        stale += not (targets or blocked)
+        clipped = [m for m in markers if m.get('was_cut', True) and clip(m, bounds)]
+        for m in clipped:
+            if not ruled_by_person(m):
+                hits[id(m)] = {'marker': m, 'label': 'false_positive',
+                               'action': 'block', 'human': True}
+        if not targets and not clipped:
+            stale += 1
     return list(hits.values()), stale
 
 
@@ -449,12 +458,12 @@ def main():
     print(f"system prompt: {system_ref}")
     for reason, count in sorted(skipped.items()):
         print(f"skipped ({reason}): {count}")
-    overlap = feeds_seen & {slug for slug, _ in holdout}
-    if overlap:
-        print(f"WARNING: {len(overlap)} extracted feed(s) also appear in the "
+    shared_feeds = feeds_seen & {slug for slug, _ in holdout}
+    if shared_feeds:
+        print(f"WARNING: {len(shared_feeds)} extracted feed(s) also appear in the "
               f"benchmark corpus (episode-level holdout enforced, but "
               f"benchmark scores on these shows partly measure in-domain "
-              f"generalization): {', '.join(sorted(overlap))}")
+              f"generalization): {', '.join(sorted(shared_feeds))}")
 
 
 if __name__ == '__main__':
