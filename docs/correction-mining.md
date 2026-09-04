@@ -184,8 +184,9 @@ Provenance already has the vocabulary; nothing new is needed.
   `original_bounds`), marks the marker blocking so the windows it touches
   are skipped like pending ones. A cut marker that overlaps a rejected span
   without being covered by it blocks the same way, unless a person ruled on
-  that marker, before or after the rejection, or a person later confirmed
-  every marker the rejection matched. Corrections are read oldest first and the newest
+  that marker, before or after the rejection, or the newest ruling on every
+  marker the rejection matched is no longer a rejection. A rejection that
+  matched no marker always blocks. Corrections are read oldest first and the newest
   decision on a marker wins, except that an auto-approval never overrides a
   person; a re-filed decision takes its newest position.
 - Uncut markers nobody ruled on are not negatives: pending holds, markers

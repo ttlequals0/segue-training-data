@@ -153,6 +153,18 @@ def test_resolve_concurring_rejection_does_not_withdraw_the_first():
         (300, 'false_positive', 'drop'), (90, 'false_positive', 'block')]
 
 
+def test_resolve_re_rejected_marker_revives_the_wider_rejection():
+    hits, _ = resolve_corrections([
+        correction('false_positive', bounds(100, 400)),
+        correction('confirm', bounds(100, 200)),
+        correction('confirm', bounds(300, 400)),
+        correction('false_positive', bounds(300, 400)),
+    ], [marker(100, 200), marker(300, 400), marker(90, 105)])
+    assert placed(hits) == [
+        (100, 'confirm', 'keep'), (300, 'false_positive', 'drop'),
+        (90, 'false_positive', 'block')]
+
+
 def test_resolve_partly_withdrawn_rejection_still_blocks():
     hits, _ = resolve_corrections([
         correction('false_positive', bounds(700, 1300)),

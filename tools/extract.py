@@ -182,8 +182,8 @@ def resolve_corrections(corrections, markers):
 
     Newest decision on a marker wins, but an auto-approval never overrides a
     person. A rejection stands while any marker it matched is still
-    rejected; while it stands it blocks any cut marker it clips that no
-    person ruled on."""
+    rejected, or when it matched none; while it stands it blocks any cut
+    marker it clips that no person ruled on."""
     hits, stale, rejections = {}, 0, []
 
     def ruled_by_person(m):
@@ -234,15 +234,14 @@ def resolve_corrections(corrections, markers):
 
 def classify_window(hits):
     """(tier, reviewed, corrected) from the corrections touching a window."""
-    human = [h['source'] for h in hits if h['source']['human']]
-    if any(c['type'] != 'false_positive' for c in human):
+    human = {correction_label(h['source']) for h in hits if h['source']['human']}
+    if human - {'false_positive'}:
         tier = 'human_verified'
     elif human:
         tier = 'hard_negative'
     else:
         tier = 'machine_accepted'
-    corrected = any(c['type'] != 'confirm' or c['corrected'] for c in human)
-    return tier, bool(human), corrected
+    return tier, bool(human), bool(human - {'confirm'})
 
 
 def fetch_episodes(conn):
