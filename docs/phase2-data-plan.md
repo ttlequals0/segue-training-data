@@ -5,6 +5,12 @@ extract next and why, measured against the source instance rather than
 estimated. Inventory taken 2026-08-30 from a database copy of 474 processed
 episodes with retained transcripts across 28 feeds.
 
+> Superseded in part. Correction mining ran and produced no gain over the base
+> model, so widening the dataset on the same premise is not supported. See
+> `runs/ablation-b/results.md`. The failure analysis below still holds, and
+> `runs/prompt-break-merge/results.md` shows the prompt reaching it more
+> cheaply than training.
+
 ## What phase 1 got wrong, and why
 
 Recall was 0.592 against precision 0.738. The failures were not random:

@@ -1,0 +1,80 @@
+{
+  "created_at": "2026-09-04T14:04:02Z",
+  "args": {
+    "train": ".local/armB/train.jsonl",
+    "val": ".local/armB/val.jsonl",
+    "model": "Qwen/Qwen3.5-9B",
+    "revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
+    "run_id": "ablation-b",
+    "resume": false,
+    "rank": 16,
+    "alpha": 32,
+    "dropout": 0.05,
+    "lr": 0.0001,
+    "epochs": 3,
+    "batch_size": 1,
+    "grad_accum": 16,
+    "max_length": 16384,
+    "eval_steps": 10,
+    "save_steps": 10,
+    "memory_fraction": 0.8,
+    "seed": 13
+  },
+  "sha256": {
+    "train": "sha256:76a196f400efc652b3963362e5cd1fd5c6abf5006285f21ef450325db8a7016c",
+    "val": "sha256:f33ca5b41cf98a80b122da85cd695e317c47f48328fe3d133f8a07cea9b2b6d3",
+    "lockfile": "sha256:7d2686201f6e3ed488f9136e7a23d66383ac6772722597fd3223f83984efe4d7"
+  },
+  "git": {
+    "segue": "f789e6a0870f65cbfba0d1012e08791ab121ff74+dirty",
+    "minuspod": "15fba7be2ca11e9b9b6efd20a7623f23074d9ce8"
+  },
+  "status": "completed",
+  "env": {
+    "python": "3.12.14",
+    "platform": "Linux-6.17.0-1032-nvidia-aarch64-with-glibc2.39",
+    "torch": "2.13.0+cu130",
+    "transformers": "5.5.4",
+    "peft": "0.20.0",
+    "accelerate": "1.14.0",
+    "cuda_available": true,
+    "cuda": "13.0",
+    "device": "NVIDIA GB10",
+    "capability": "12.1"
+  },
+  "template_hash": "sha256:a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715",
+  "attn": "sdpa",
+  "lora_modules": [
+    "down_proj",
+    "gate_proj",
+    "in_proj_a",
+    "in_proj_b",
+    "in_proj_qkv",
+    "in_proj_z",
+    "k_proj",
+    "o_proj",
+    "out_proj",
+    "q_proj",
+    "up_proj",
+    "v_proj"
+  ],
+  "trainable_params": 43278336,
+  "run_dir": "<repo>/.local/runs/ablation-b",
+  "train_loss": 0.9152799485585629,
+  "final_eval": {
+    "eval_loss": 0.2536616623401642,
+    "eval_runtime": 534.2047,
+    "eval_samples_per_second": 0.195,
+    "eval_steps_per_second": 0.195,
+    "epoch": 3.0
+  },
+  "best_checkpoint": "<repo>/.local/runs/ablation-b/checkpoint-39",
+  "adapter_sha256": {
+    "README.md": "sha256:152fcb11282f5418d54ac7cd69c55ac13312dceb41460c5e067ccd21437d599c",
+    "adapter_config.json": "sha256:f1ac44e3dde2bb0803412876a33b459d7bff5639e4a377928fcb8f086a2bdd20",
+    "adapter_model.safetensors": "sha256:ce57b85007deb95f0e4ee6f7e6fa6d197211f2e09b1a0a91babebea99659b58c",
+    "chat_template.jinja": "sha256:a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715",
+    "tokenizer.json": "sha256:87a7830d63fcf43bf241c3c5242e96e62dd3fdc29224ca26fed8ea333db72de4",
+    "tokenizer_config.json": "sha256:5c5d35fa571bff9b1687a906a1f96756f44b8aae45381b5be94a2d66f6836546"
+  }
+}

@@ -1,6 +1,6 @@
 """Collect a finished run's artifacts into runs/ for committing.
 
-The trainer writes runs/<run-id>.json, the generation eval writes
+The trainer writes runs/<run-id>/run.json, the generation eval writes
 .local/eval-<run-id>.json, and export writes an export manifest. Only the
 first is in git, and .local is ignored, so the numbers are lost unless they
 are copied out. This does that, and writes a results document beside them.
@@ -136,7 +136,8 @@ def main():
     args = ap.parse_args()
 
     local = Path(args.local_dir)
-    manifest_path = REPO_ROOT / 'runs' / f'{args.run_id}.json'
+    run_dir = REPO_ROOT / 'runs' / args.run_id
+    manifest_path = run_dir / 'run.json'
     if not manifest_path.exists():
         raise SystemExit(f'{manifest_path} missing; was the run completed?')
     manifest = json.loads(manifest_path.read_text())
@@ -160,10 +161,10 @@ def main():
         if export_manifest:
             export_manifest = scrub_paths(export_manifest, home, REPO_ROOT)
 
-    eval_out = REPO_ROOT / 'runs' / f'{args.run_id}-eval.json'
+    eval_out = run_dir / 'eval.json'
     eval_out.write_text(json.dumps(metrics, indent=2) + '\n')
 
-    results = REPO_ROOT / 'runs' / f'{args.run_id}-results.md'
+    results = run_dir / 'results.md'
     if results.exists():
         raise SystemExit(f'{results} exists; move it aside to regenerate')
     results.write_text(render_results(args.run_id, manifest, metrics,
@@ -173,8 +174,7 @@ def main():
           f'{results.relative_to(REPO_ROOT)}')
     if export_manifest is None:
         print('note: no export manifest found, the results say so')
-    print(f'commit: runs/{args.run_id}.json runs/{args.run_id}-eval.json '
-          f'runs/{args.run_id}-results.md')
+    print(f'commit: runs/{args.run_id}/')
     print('then write the Analysis section by hand')
 
 

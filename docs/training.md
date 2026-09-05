@@ -73,7 +73,7 @@ enough for your torch build.
 Every command takes `--revision`, and it is required rather than defaulted. An
 adapter trained against one base snapshot and merged against another is a
 silent corruption, so the revision is part of a run's identity and is recorded
-in `runs/<run-id>.json`.
+in `runs/<run-id>/run.json`.
 
     export REV=c202236235762e1c871ad0ccb60c8ee5ba337b9a
 
@@ -164,7 +164,7 @@ this configuration expects, which is worth understanding rather than
 overriding.
 
 Evaluation loss against the held-out feeds is logged every 10 steps, the
-adapter lands in `.local/runs/r1/adapter`, and `runs/r1.json` records the full
+adapter lands in `.local/runs/r1/adapter`, and `runs/r1/run.json` records the full
 run manifest: data and prompt hashes, package versions, driver and GPU,
 repository commits, LoRA module list, and seeds.
 
@@ -280,6 +280,6 @@ are training something other than what the manifest claims.
 
 ## Reporting a run
 
-A run is only comparable if its provenance is. Keep `runs/<run-id>.json`, the
+A run is only comparable if its provenance is. Keep `runs/<run-id>/run.json`, the
 eval JSON, and the export manifest together, and state the base revision, the
 val feeds, and the memory fraction alongside any score you publish.
