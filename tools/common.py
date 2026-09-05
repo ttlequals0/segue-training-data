@@ -13,7 +13,7 @@ HOLDOUT_FILE = REPO_ROOT / "data" / "holdout.txt"
 EXCLUDED_FEEDS_FILE = REPO_ROOT / ".local" / "excluded_feeds.txt"
 SCHEMA_FILE = REPO_ROOT / "schema" / "example.schema.json"
 
-EXTRACTOR_VERSION = "0.1.0"
+EXTRACTOR_VERSION = "0.2.0"
 
 
 def setup_minuspod_path(explicit: str | None = None) -> Path:

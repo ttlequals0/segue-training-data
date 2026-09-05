@@ -73,6 +73,13 @@
         "app_version": {"type": "string"},
         "extractor_version": {"type": "string"},
         "label_fixes": {"type": "array", "items": {"type": "string"}},
+        "corrections": {
+          "type": "array",
+          "items": {"type": "string",
+                    "enum": ["confirm", "confirm_trimmed", "auto_confirm",
+                             "auto_confirm_trimmed", "false_positive",
+                             "boundary_adjustment", "create"]}
+        },
         "dropped_spans": {
           "type": "array",
           "items": {
@@ -85,7 +92,8 @@
               "category": {"type": "string"},
               "reason": {"type": "string"},
               "rule": {"type": "string",
-                       "enum": ["outro_without_show_segments", "audio_only_evidence"]}
+                       "enum": ["outro_without_show_segments", "audio_only_evidence",
+                                "rejected_but_cut"]}
             }
           }
         }
