@@ -18,11 +18,21 @@ LoRA on a single CUDA GPU) replaced the managed backend, gated by a preflight
 that renders every example and runs a real optimizer step before it will let
 a run start. [docs/training.md](docs/training.md) is the end-to-end guide.
 
-The first local run finished on a DGX Spark: Qwen3.5-9B, LoRA rank 16 across
-248 linear modules, 3 epochs over 153 examples in 100 minutes, peaking at 43.1
-GiB. Held-out loss improved each epoch, 0.5632 to 0.5615 to 0.5426. Span-level
-scoring of that checkpoint is still to come, so treat it as a working pipeline
-rather than a result.
+Fine-tuning has not beaten the base model. Two runs on Qwen3.5-9B match it on
+the benchmark corpus: `r2` on 8555 `machine_accepted` windows and `ablation-b`
+on 205 human-corrected windows, which land within 0.2s of each other on both
+boundary metrics. Two datasets 40 times apart in size, one
+machine and one human, produce the same model, so there is no measured
+advantage to correction data and no sign that more of it would help.
+`runs/ablation-b/results.md` has the numbers.
+
+What did move the score was the prompt. Scoring the corpus in audio seconds
+showed the model finds 51 of 53 ads and then under-covers them, emitting one
+span per advertiser instead of one per break. Rewriting that merge rule took
+F0.5 from 0.754 to 0.798 and recovered 134 seconds of ad audio, in minutes
+rather than the hours each training run costs. It also cut 133 more seconds of
+show content, which needs evaluating before the rule ships. It is recorded in
+`runs/prompt-break-merge/results.md` and belongs in MinusPod, not here.
 
 Before it, the dataset was corrected against an audit: one span now means one
 contiguous ad break, spans whose only evidence was audio or whose category the
@@ -31,7 +41,7 @@ rather than assumed. MinusPod's benchmark scorer was changed to match, so
 older scores are not comparable to new ones.
 
 The earlier managed-backend checkpoint (Qwen3.5-4B, tier B, F0.5 0.686) is
-recorded in `runs/20260830-162400-results.md`. That number predates the
+recorded in `runs/20260830-162400/results.md`. That number predates the
 per-break scoring change and should be re-measured before it is compared with
 anything. Phase 2 widens the dataset; the plan is in
 `docs/phase2-data-plan.md`.
@@ -45,7 +55,7 @@ anything. Phase 2 widens the dataset; the plan is in
 | `prompts/<sha256>.txt` | Deduplicated system prompts referenced by examples |
 | `schema/example.schema.json` | JSON Schema for a training example |
 | `tools/` | Extraction, validation, dataset build, training, export, and evaluation scripts |
-| `runs/` | Config snapshot and scored results for each training run |
+| `runs/<run-id>/` | Config snapshot and scored results for one run |
 | `docs/` | Training guide, glossary, design, phase 1 runbook, phase 2 data plan |
 | `benchmark.local.toml.example` | Benchmark harness config for scoring a locally served checkpoint |
 
@@ -112,7 +122,7 @@ rather than assembling the steps from here. Unfamiliar terms are defined in
 # Gate: refuses to train until data, renderer, and device check out
 uv run python tools/preflight.py --revision $REV
 
-# LoRA-train against the preflight stamp; writes runs/<run-id>.json
+# LoRA-train against the preflight stamp; writes runs/<run-id>/run.json
 uv run python tools/train_local.py --run-id r1 --revision $REV
 
 # Score JSON compliance, span P/R/F0.5, and boundary MAE on held-out val

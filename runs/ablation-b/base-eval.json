@@ -1,0 +1,28 @@
+{
+  "args": {
+    "val": ".local/armB/val.jsonl",
+    "model": "Qwen/Qwen3.5-9B",
+    "revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
+    "adapter": null,
+    "merged": null,
+    "base": true,
+    "run_id": "ablation-b-base"
+  },
+  "metrics": {
+    "n": 104,
+    "json_compliance": 0.9808,
+    "precision": 0.7826,
+    "recall": 0.6667,
+    "f05": 0.7563,
+    "tp": 18,
+    "fp": 5,
+    "fn": 9,
+    "noad_windows": 80,
+    "noad_fp": 2,
+    "start_mae": 14.96,
+    "end_mae": 12.21,
+    "source": "base",
+    "tier_band": "B",
+    "tier_band_source": "published report"
+  }
+}

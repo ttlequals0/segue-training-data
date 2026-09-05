@@ -140,7 +140,7 @@ Done so far:
   report](https://github.com/ttlequals0/MinusPod/blob/main/benchmarks/llm/results/report.md)
   that ties `gemini-3.1-flash-lite` and clears every untuned open-weight
   entry, against tier A and 0.781 for the hosted model it would replace.
-  Full numbers in `runs/20260830-162400-results.md`. This F0.5 0.686 row
+  Full numbers in `runs/20260830-162400/results.md`. This F0.5 0.686 row
   predates scorer canonicalization and is not directly comparable to scores
   produced after it.
 
@@ -163,7 +163,7 @@ allocator.
 Scored on the held-out split, 47 windows and 23 truth spans: the untuned base
 reaches F0.5 0.783 at 97.9 percent JSON compliance, the adapter 0.840 at 100
 percent, the merged model 0.798 at 100 percent. Full numbers and analysis in
-`runs/r2-results.md`.
+`runs/r2/results.md`.
 
 Two findings from that. The base model is far stronger than phase 1's framing
 assumed, so the fine-tune's accuracy gain is two spans out of 23, inside the

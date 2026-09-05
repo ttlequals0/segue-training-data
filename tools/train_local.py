@@ -209,7 +209,8 @@ def main():
          'template_hash': stamp['template_hash'], 'attn': stamp['attn'],
          'lora_modules': matched, 'trainable_params': trainable,
          'run_dir': str(run_dir)})
-    manifest_path = REPO_ROOT / 'runs' / f'{args.run_id}.json'
+    manifest_path = REPO_ROOT / 'runs' / args.run_id / 'run.json'
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(run_manifest, indent=2) + '\n')
 
     targs = build_training_args(run_dir, args, len(train_enc))

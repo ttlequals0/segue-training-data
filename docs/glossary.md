@@ -172,7 +172,7 @@ means more capacity and more trainable parameters.
 **Recall**: Of the real ads, the fraction found, TP / (TP + FN). Low recall
 means ads survive in the output.
 
-**Run manifest (`runs/<run-id>.json`)**: Everything needed to reproduce a run:
+**Run manifest (`runs/<run-id>/run.json`)**: Everything needed to reproduce a run:
 data and prompt hashes, package versions, CUDA and driver and GPU, repository
 commits, the resolved LoRA module list, trainable parameter count, seeds, and
 checkpoint paths.

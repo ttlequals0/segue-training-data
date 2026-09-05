@@ -258,6 +258,19 @@ If the second matches or beats the first, the machine-accepted majority is
 inert and the dataset should shrink rather than grow, which would be a useful
 and cheap finding.
 
+### Outcome
+
+Arm 2 ran as `ablation-b` and the hypothesis failed. False positives stayed at
+18, the exact number they were meant to fall below, and detection counts were
+identical to the base. Arm 1 was never run: `r2` had already trained on 8555
+`machine_accepted` windows and matched the base too, and the two adapters land
+within 0.2s of each other on both boundary metrics, so a third run had nothing
+left to separate.
+
+The boundary improvement r2 showed is therefore generic to LoRA on this task,
+not signal from corrections. `runs/ablation-b/results.md` has the numbers, and
+`runs/prompt-break-merge/results.md` covers what did move the score.
+
 ## Out of scope
 
 Category backfill for the 666 uncategorized markers, `audio_context`
@@ -299,7 +312,7 @@ the confidence interval.
 ## Provenance
 
 - Base run: Qwen3.5-9B revision c202236235762e1c871ad0ccb60c8ee5ba337b9a,
-  no adapter. Adapter run: r2 (`runs/r2.json`).
+  no adapter. Adapter run: r2 (`runs/r2/run.json`).
 - Corpus: MinusPod f45ce8e2. Both runs were re-scored offline from their
   stored `results/raw/calls.jsonl` after the truth fix; nothing was
   re-captured, and `windows_stale` is false on all 171 rows of each run.

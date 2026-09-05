@@ -101,11 +101,11 @@ def main():
         'max_length': args.max_length, 'train_file': args.train,
         'train_examples': n_examples, 'started_at': stamp,
     }
-    runs_dir = REPO_ROOT / 'runs'
-    runs_dir.mkdir(exist_ok=True)
-    (runs_dir / f'{stamp}.json').write_text(
+    runs_dir = REPO_ROOT / 'runs' / stamp
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    (runs_dir / 'run.json').write_text(
         json.dumps(run_config, indent=2) + '\n')
-    print(f'run config: runs/{stamp}.json')
+    print(f'run config: runs/{stamp}/run.json')
     print(f'training {args.model} (renderer {renderer}, rank {args.rank}) '
           f'on {n_examples} examples, logs in {log_path}')
 
