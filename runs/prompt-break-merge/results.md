@@ -28,9 +28,12 @@ gaps:
 
     - MERGING: Multiple ads with gaps < 15 seconds = ONE segment
 
-Replaced with a content-based rule: emit one segment per break, spanning the
-first pitch to the last including the words between them, and start a new
-segment only when show content resumes.
+Replaced with a content-based rule:
+
+    - MERGING: Emit ONE segment per ad break, not one per advertiser. A break
+      often contains several different sponsors read back to back. Span from the
+      start of the first pitch to the end of the last one, including the words
+      between them. Start a new segment only when actual show content resumes.
 
 ## Result
 
@@ -44,17 +47,23 @@ segment only when show content resumes.
 | Holes inside breaks | 268s | 166s |
 
 Both halves moved at once. Recovering 134 seconds of ads costs 133 seconds of
-wrongly cut content, since spanning a break swallows its transitions. F0.5
-prices that as a clear win; whether it is the right trade depends on how much
-a few seconds of clipped show content matters against leaving ads in.
+wrongly cut content, since spanning a break swallows its transitions.
 
 The adapter and the base scored identically here, 44 / 13 / 5 each. The prompt
 determines the behavior.
 
-## Where it belongs
+## Not adopted
 
-The rule is MinusPod's detection prompt, not this repo. Adopting it is a
-MinusPod change, and it shifts every published benchmark row.
+Recorded here, not shipped. The rule is MinusPod's detection prompt, so
+adopting it is a MinusPod change and it shifts every published benchmark row.
+
+Before that happens, the cost side needs its own evaluation. Wrongly cut
+content rose from 176s to 309s across 14 episodes, 13 to 22 seconds per
+episode, because spanning a break swallows the host chatter between reads.
+F0.5 counts that as a win because it scores spans, not audio, and a listener
+does not. Someone has to listen to what the wider spans remove and decide
+whether clipped show content is an acceptable price for 134 seconds of
+recovered ads. Until then this is a measured result, not a recommendation.
 
 ## Also checked
 

@@ -30,8 +30,9 @@ What did move the score was the prompt. Scoring the corpus in audio seconds
 showed the model finds 51 of 53 ads and then under-covers them, emitting one
 span per advertiser instead of one per break. Rewriting that merge rule took
 F0.5 from 0.754 to 0.798 and recovered 134 seconds of ad audio, in minutes
-rather than the hours each training run costs. See
-`runs/prompt-break-merge/results.md`; the rule itself belongs in MinusPod.
+rather than the hours each training run costs. It also cut 133 more seconds of
+show content, which needs evaluating before the rule ships. It is recorded in
+`runs/prompt-break-merge/results.md` and belongs in MinusPod, not here.
 
 Before it, the dataset was corrected against an audit: one span now means one
 contiguous ad break, spans whose only evidence was audio or whose category the
